@@ -27,25 +27,64 @@ pub enum Intrinsic {
 /* ---------------------------------- IMPLS --------------------------------- */
 
 impl Intrinsic {
-    pub fn simplify(&self) -> Expr {
+    pub fn simplify(self) -> Expr {
         match self {
-            // Intrinsic::Add(operands) => {
-            //     let mut simplified =
-            //         fold_consts(operands, Num::ZERO, |accum, x| accum + x);
+            Intrinsic::Add(operands) => {
+                fn flatten(expr: Expr) -> Vec<Expr> {
+                    match expr {
+                        Expr::Intrinsic(intr) => match *intr {
+                            Intrinsic::Add(ops) => {
+                                ops.into_iter().flat_map(flatten).collect()
+                            }
 
-            //     if simplified.len() <= 1 {
-            //         return simplified
-            //             .try_remove(0)
-            //             .unwrap_or(Expr::Const(Num::ZERO));
-            //     } else {
-            //         return Expr::Intrinsic(Box::new(Intrinsic::Add(
-            //             simplified,
-            //         )));
-            //     }
-            // }
-            Intrinsic::Mul(operands) => {
+                            intr => vec![Expr::Intrinsic(Box::new(intr))],
+                        },
+
+                        expr => vec![expr],
+                    }
+                }
+
+                let flattened =
+                    operands.into_iter().flat_map(flatten).collect::<Vec<_>>();
+
+                let (mut simplified, folded_const) =
+                    fold_consts(&flattened, Num::ZERO, |accum, x| accum + x);
+                simplified.push(Expr::Const(folded_const));
+
+                if simplified.len() <= 1 {
+                    return simplified
+                        .try_remove(0)
+                        .unwrap_or(Expr::Const(Num::ZERO));
+                } else {
+                    return Expr::Intrinsic(Box::new(Intrinsic::Add(
+                        simplified,
+                    )));
+                }
+            }
+            Intrinsic::Mul(mut operands) => {
+                if operands.len() == 1 {
+                    return operands.remove(0);
+                }
+
+                fn flatten(expr: Expr) -> Vec<Expr> {
+                    match expr {
+                        Expr::Intrinsic(intr) => match *intr {
+                            Intrinsic::Add(ops) => {
+                                ops.into_iter().flat_map(flatten).collect()
+                            }
+
+                            intr => vec![Expr::Intrinsic(Box::new(intr))],
+                        },
+
+                        expr => vec![expr],
+                    }
+                }
+
+                let flattened =
+                    operands.into_iter().flat_map(flatten).collect::<Vec<_>>();
+
                 let (mut simplified_operands, folded_const) =
-                    fold_consts(operands, Num::ONE, |accum, x| accum * x);
+                    fold_consts(&flattened, Num::ONE, |accum, x| accum * x);
 
                 if folded_const == Num::ZERO {
                     return Expr::Const(Num::ZERO);
