@@ -1,4 +1,4 @@
-use crate::{expr::Expr, var::Variable};
+use crate::{ast::Expr, var::Variable};
 
 pub struct Equation {
     lhs: Expr,

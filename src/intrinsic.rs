@@ -1,151 +1,202 @@
-use itertools::Itertools;
-use num::traits::{ConstOne, ConstZero};
+// use std::ops::Add;
 
-use crate::{Num, expr::Expr};
+// use itertools::Itertools;
+// use num::traits::{ConstOne, ConstZero};
 
-/* ---------------------------------- ENUMS --------------------------------- */
+// use crate::{
+//     Complex, dimension::Quantity, expr::Expr, symbol::SymbolicContext,
+// };
 
-#[derive(PartialEq, Clone)]
-pub enum Intrinsic {
-    Add(Vec<Expr>),
-    Mul(Vec<Expr>),
-    Neg(Expr),
+// /* ---------------------------------- ENUMS --------------------------------- */
+// #[derive(PartialEq, Clone, Debug)]
+// pub enum Intrinsic {
+//     Add(Vec<Expr>),
+//     Mul(Vec<Expr>),
+//     Div { num: Expr, denom: Expr },
+//     Neg(Expr),
 
-    Sin(Expr),
-    Cos(Expr),
-    Asin(Expr),
-    Acos(Expr),
+//     Sin(Expr),
+//     Cos(Expr),
+//     Asin(Expr),
+//     Acos(Expr),
 
-    Pow { base: Expr, exp: Expr },
-    Log { base: Expr, arg: Expr },
-    Norm(Expr),
+//     Pow { base: Expr, exp: Expr },
+//     Log { base: Expr, arg: Expr },
+//     Norm(Expr),
 
-    Inv(Expr),
-    Transpose(Expr),
-}
+//     Inv(Expr),
+//     Transpose(Expr),
+// }
 
-/* ---------------------------------- IMPLS --------------------------------- */
+// /* ---------------------------------- IMPLS --------------------------------- */
+// impl Intrinsic {
+//     pub fn simplify(self) -> Expr {
+//         match self {
+//             Intrinsic::Add(operands) => {
+//                 let flattened = operands
+//                     .into_iter()
+//                     .flat_map(|expr| {
+//                         expr.as_intrinsic()
+//                             .and_then(|intr| intr.as_add().cloned())
+//                             .unwrap_or(vec![expr])
+//                     })
+//                     .collect::<Vec<_>>();
 
-impl Intrinsic {
-    pub fn simplify(self) -> Expr {
-        match self {
-            Intrinsic::Add(operands) => {
-                fn flatten(expr: Expr) -> Vec<Expr> {
-                    match expr {
-                        Expr::Intrinsic(intr) => match *intr {
-                            Intrinsic::Add(ops) => {
-                                ops.into_iter().flat_map(flatten).collect()
-                            }
+//                 let (mut simplified, folded_const) =
+//                     fold_consts(flattened, Complex::ZERO, |accum, x| accum + x);
 
-                            intr => vec![Expr::Intrinsic(Box::new(intr))],
-                        },
+//                 if folded_const != Complex::ZERO {
+//                     simplified.push(Expr::Const(folded_const));
+//                 }
 
-                        expr => vec![expr],
-                    }
-                }
+//                 if simplified.len() <= 1 {
+//                     return simplified
+//                         .try_remove(0)
+//                         .unwrap_or(Expr::Const(Complex::ZERO));
+//                 } else {
+//                     return Expr::Intrinsic(Box::new(Intrinsic::Add(
+//                         simplified,
+//                     )));
+//                 }
+//             }
+//             Intrinsic::Mul(mut operands) => {
+//                 if operands.len() == 1 {
+//                     return operands.remove(0);
+//                 }
 
-                let flattened =
-                    operands.into_iter().flat_map(flatten).collect::<Vec<_>>();
+//                 let flattened = operands
+//                     .into_iter()
+//                     .flat_map(|expr| {
+//                         expr.as_intrinsic()
+//                             .and_then(|intr| intr.as_mul().cloned())
+//                             .unwrap_or(vec![expr])
+//                     })
+//                     .collect::<Vec<_>>();
 
-                let (mut simplified, folded_const) =
-                    fold_consts(&flattened, Num::ZERO, |accum, x| accum + x);
-                simplified.push(Expr::Const(folded_const));
+//                 let (mut simplified, folded_const) =
+//                     fold_consts(flattened, Complex::ONE, |accum, x| accum * x);
 
-                if simplified.len() <= 1 {
-                    return simplified
-                        .try_remove(0)
-                        .unwrap_or(Expr::Const(Num::ZERO));
-                } else {
-                    return Expr::Intrinsic(Box::new(Intrinsic::Add(
-                        simplified,
-                    )));
-                }
-            }
-            Intrinsic::Mul(mut operands) => {
-                if operands.len() == 1 {
-                    return operands.remove(0);
-                }
+//                 if folded_const == Complex::ZERO {
+//                     return Expr::Const(Complex::ZERO);
+//                 }
 
-                fn flatten(expr: Expr) -> Vec<Expr> {
-                    match expr {
-                        Expr::Intrinsic(intr) => match *intr {
-                            Intrinsic::Add(ops) => {
-                                ops.into_iter().flat_map(flatten).collect()
-                            }
+//                 // Distributive Property
+//                 let add_ops = simplified
+//                     .extract_if(.., |expr| {
+//                         expr.as_intrinsic().is_some_and(|intr| intr.is_add())
+//                     })
+//                     .filter_map(|expr| {
+//                         expr.as_intrinsic()
+//                             .and_then(|intr| intr.as_add().cloned())
+//                     })
+//                     .collect::<Vec<_>>();
 
-                            intr => vec![Expr::Intrinsic(Box::new(intr))],
-                        },
+//                 let mut remaining_factors = simplified;
+//                 if folded_const != Complex::ONE {
+//                     remaining_factors.push(Expr::Const(folded_const));
+//                 }
 
-                        expr => vec![expr],
-                    }
-                }
+//                 let expanded = if add_ops.is_empty() {
+//                     Intrinsic::Mul(remaining_factors)
+//                 } else {
+//                     Intrinsic::Add(
+//                         add_ops
+//                             .into_iter()
+//                             .multi_cartesian_product()
+//                             .map(|mut exprs| {
+//                                 exprs.extend(remaining_factors.iter().cloned());
+//                                 Expr::Intrinsic(Box::new(Intrinsic::Mul(exprs)))
+//                             })
+//                             .collect::<Vec<_>>(),
+//                     )
+//                 };
 
-                let flattened =
-                    operands.into_iter().flat_map(flatten).collect::<Vec<_>>();
+//                 return Expr::Intrinsic(Box::new(expanded));
+//             }
+//             _ => todo!(),
+//         }
+//     }
 
-                let (mut simplified_operands, folded_const) =
-                    fold_consts(&flattened, Num::ONE, |accum, x| accum * x);
+//     pub fn format(&self, buf: &mut String, ctx: &SymbolicContext) {
+//         match self {
+//             Intrinsic::Add(ops) => {
+//                 for (i, op) in ops.iter().enumerate() {
+//                     op.format(buf, ctx);
+//                     if i < ops.len() - 1 {
+//                         buf.push('+');
+//                     }
+//                 }
+//             }
+//             Intrinsic::Mul(ops) => {
+//                 for (i, op) in ops.iter().enumerate() {
+//                     op.format(buf, ctx);
+//                     if i < ops.len() - 1 {
+//                         buf.push('*');
+//                     }
+//                 }
+//             }
+//             _ => todo!(),
+//         }
+//     }
 
-                if folded_const == Num::ZERO {
-                    return Expr::Const(Num::ZERO);
-                }
+//     /// Returns `true` if the intrinsic is [`Add`].
+//     ///
+//     /// [`Add`]: Intrinsic::Add
+//     #[must_use]
+//     pub fn is_add(&self) -> bool {
+//         matches!(self, Self::Add(..))
+//     }
 
-                // Distributive Property
-                let mut add_ops = Vec::new();
+//     pub fn as_add(&self) -> Option<&Vec<Expr>> {
+//         if let Self::Add(v) = self { Some(v) } else { None }
+//     }
 
-                simplified_operands.retain_mut(|expr| match expr {
-                    Expr::Intrinsic(intr)
-                        if let Intrinsic::Add(ops) = &mut **intr =>
-                    {
-                        add_ops.push(*ops);
-                        false
-                    }
-                    _ => true,
-                });
+//     pub fn as_add_mut(&mut self) -> Option<&mut Vec<Expr>> {
+//         if let Self::Add(v) = self { Some(v) } else { None }
+//     }
 
-                let mut remaining_factors = simplified_operands;
-                if folded_const != Num::ONE {
-                    remaining_factors.push(Expr::Const(folded_const));
-                }
+//     /// Returns `true` if the intrinsic is [`Mul`].
+//     ///
+//     /// [`Mul`]: Intrinsic::Mul
+//     #[must_use]
+//     pub fn is_mul(&self) -> bool {
+//         matches!(self, Self::Mul(..))
+//     }
 
-                let mut expanded = if add_ops.is_empty() {
-                    Intrinsic::Mul(remaining_factors)
-                } else {
-                    Intrinsic::Add(
-                        add_ops
-                            .into_iter()
-                            .multi_cartesian_product()
-                            .map(|mut exprs| {
-                                exprs.extend(remaining_factors.iter().cloned());
-                                Expr::Intrinsic(Box::new(Intrinsic::Mul(exprs)))
-                            })
-                            .collect::<Vec<_>>(),
-                    )
-                };
+//     pub fn as_mul(&self) -> Option<&Vec<Expr>> {
+//         if let Self::Mul(v) = self { Some(v) } else { None }
+//     }
 
-                return Expr::Intrinsic(Box::new(expanded));
-            }
-        }
-    }
-}
+//     /// Returns `true` if the intrinsic is [`Neg`].
+//     ///
+//     /// [`Neg`]: Intrinsic::Neg
+//     #[must_use]
+//     pub fn is_neg(&self) -> bool {
+//         matches!(self, Self::Neg(..))
+//     }
 
-fn fold_consts(
-    operands: &Vec<Expr>,
-    init: Num,
-    fold: impl FnMut(Num, &Num) -> Num,
-) -> (Vec<Expr>, Num) {
-    let mut simplified_operands =
-        operands.iter().map(Expr::simplify).collect::<Vec<_>>();
+//     pub fn as_neg(&self) -> Option<&Expr> {
+//         if let Self::Neg(v) = self { Some(v) } else { None }
+//     }
+// }
 
-    let folded_const =
-        simplified_operands
-            .iter()
-            .filter_map(|expr| {
-                if let Expr::Const(val) = expr { Some(val) } else { None }
-            })
-            .fold(init, fold);
+// fn fold_consts(
+//     operands: Vec<Expr>,
+//     init: Quantity,
+//     fold: impl FnMut(Quantity, &Quantity) -> Quantity,
+// ) -> (Vec<Expr>, Quantity) {
+//     let mut simplified_operands =
+//         operands.into_iter().map(Expr::simplify).collect::<Vec<_>>();
 
-    simplified_operands.retain(|expr| !matches!(expr, Expr::Const(_)));
+//     let folded_const =
+//         simplified_operands
+//             .iter()
+//             .filter_map(|expr| {
+//                 if let Expr::Const(val) = expr { Some(val) } else { None }
+//             })
+//             .fold(init, fold);
 
-    (simplified_operands, folded_const)
-}
+//     simplified_operands.retain(|expr| !matches!(expr, Expr::Const(_)));
+
+//     (simplified_operands, folded_const)
+// }
