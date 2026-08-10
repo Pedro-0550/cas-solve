@@ -8,24 +8,28 @@ use std::{
     },
 };
 
-use num::pow::Pow;
+use num::{complex::Complex64, pow::Pow};
 use paste::paste;
 use thiserror::Error;
 
-use crate::{Complex, ast::Expr};
+use crate::{
+    Complex,
+    arena::{Arena, Handle},
+    ast::Expr,
+};
 
 pub mod isq;
+pub mod other;
 pub mod si;
+
+#[cfg(test)]
+mod test;
 
 /* -------------------------------- CONSTANTS ------------------------------- */
 
 type Composition = Vec<(Unit, i8)>;
 
-// I really dont like this, but you gotta do what you gotta do
-static COMPOSITIONS: LazyLock<RwLock<HashMap<CompositionId, Composition>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-
-static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+static COMPOSITIONS: Arena<Composition> = Arena::new();
 
 /* ---------------------------------- ENUMS --------------------------------- */
 
@@ -48,9 +52,6 @@ pub trait Dimensioned {
 }
 
 /* --------------------------------- STRUCTS -------------------------------- */
-
-#[derive(PartialEq, Clone, Copy, Eq, Hash, Debug)]
-pub struct CompositionId(usize);
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub struct Quantity(Complex, Unit);
@@ -80,6 +81,8 @@ pub struct Dimension {
 /// Checking can be done at the unit level, in which case you can't have an equation where one side is `s^-1 * m` and the other `Hz * m`, for example,
 /// and in the dimension level, where that is perfectly fine because they are dimensionally the same, `T^-1 * L^1`.
 ///
+/// Unit scale is always checked, so you cannot equal eV to J in an equation regardless of chosen level.
+///
 /// Order is preserved during compositions, and different orders of the same compositions are not eq,
 /// but order is ignored during checking, and only the equivalence is taken into account.
 #[derive(PartialEq, Clone, Copy, Debug)]
@@ -87,11 +90,65 @@ pub struct Dimension {
 pub enum Unit {
     Base { symbol: &'static str, dimension: Dimension },
     Derived { symbol: &'static str, base: &'static [(Unit, i8)] },
-    Composed(CompositionId),
+    Composed(Handle<Composition>),
+    Scaled { symbol: &'static str, base: &'static Unit, scale: f64 },
     Unitless,
 }
 
 /* ---------------------------------- IMPLS --------------------------------- */
+
+impl Quantity {
+    /// Normalizes this quantity to its non-scaled form.
+    /// If this quantity is given in a scaled unit such as eV, it will convert to Joule and scale its value appropriately.
+    /// This will be done recursively until a non-scaled unit is reached.
+    /// If this quantity is given in a composition containing scaled units, all scaled units will be reduced to non-scaled form.
+    ///
+    /// If it does not contain any scale, self is returned instead.
+    ///
+    /// For example, `10 eV` becomes `1.602176634e-18 J`.
+    /// This also folds compositions of scaled but dimensionally equal units: `10 eV/J` becomes `1.602176634e-18 (unitless)`
+    pub fn normalize(self) -> Quantity {
+        let Quantity(mut current_val, mut current_unit) = self;
+
+        loop {
+            let normalized = match current_unit {
+                Unit::Scaled { base, scale, .. } => {
+                    current_val *= scale;
+                    *base
+                }
+                Unit::Composed(id) => {
+                    let mut composition = COMPOSITIONS.get_cloned(id).unwrap();
+
+                    for (unit, exp) in composition.iter_mut() {
+                        if let Unit::Scaled { base, scale, .. } = *unit {
+                            *unit = *base;
+                            current_val *= scale.powi(*exp as i32);
+                        }
+                    }
+
+                    Unit::new_composition(composition)
+                }
+                _ => current_unit,
+            };
+
+            if normalized == current_unit {
+                break;
+            }
+
+            current_unit = normalized;
+        }
+
+        Quantity(current_val, current_unit)
+    }
+
+    pub fn value(&self) -> Complex {
+        return self.0;
+    }
+
+    pub fn unit(&self) -> Unit {
+        return self.1;
+    }
+}
 
 impl From<Complex> for Quantity {
     fn from(value: Complex) -> Self {
@@ -192,14 +249,13 @@ impl Unit {
     }
 
     /// Checks if two unit's *representations* are equivalent.
-    /// For example, `s^-1 * m` and `m * Hz` are equivalent at the dimensional level, but not in the representational level.
+    /// For example, `s^-1 * m`, `m * Hz` and `km hr^-1` are equivalent at the dimensional level, but not in the representational level.
     /// In contrast, `s^-1 * m` and `m * s^-1` are equivalent in both worlds.
     pub fn repr_eq(self, rhs: Unit) -> bool {
         match (self, rhs) {
             (Unit::Composed(self_id), Unit::Composed(rhs_id)) => {
-                let compositions = COMPOSITIONS.read().unwrap();
-                let self_comp = compositions.get(&self_id).unwrap();
-                let rhs_comp = compositions.get(&rhs_id).unwrap();
+                let self_comp = COMPOSITIONS.get_cloned(self_id).unwrap();
+                let rhs_comp = COMPOSITIONS.get_cloned(rhs_id).unwrap();
 
                 self_comp.iter().all(|x| rhs_comp.contains(x))
             }
@@ -207,19 +263,27 @@ impl Unit {
         }
     }
 
+    /// Returns true if this unit is atomic, that is, represented by a single base unit or derived unit, and an optional multiplier.
+    /// False if its composed, including exponentiation of a single unit.
+    /// TODO: recursively check scaled unit's atomicity
+    fn is_atomic(&self) -> bool {
+        match self {
+            Self::Base { .. } | Self::Derived { .. } => true,
+
+            Self::Scaled { base, .. } => base.is_atomic(),
+
+            Self::Unitless | Self::Composed(_) => false,
+        }
+    }
+
     fn new_composition(mut comp: Composition) -> Self {
         fold_composition(&mut comp);
 
-        let mut compositions = COMPOSITIONS.write().unwrap();
-
-        if let Some((existing_id, _)) =
-            compositions.iter().find(|(_, c)| **c == comp)
-        {
-            return Unit::Composed(*existing_id);
+        if let Some((existing_id, _)) = COMPOSITIONS.find(|_, c| **c == comp) {
+            return Unit::Composed(existing_id);
         }
 
-        let id = CompositionId(NEXT_ID.fetch_add(1, Ordering::Relaxed));
-        compositions.insert(id, comp);
+        let id = COMPOSITIONS.insert(comp);
 
         Unit::Composed(id)
     }
@@ -236,13 +300,9 @@ impl Mul for Unit {
 
     fn mul(self, rhs: Self) -> Self::Output {
         let result = {
-            let compositions = COMPOSITIONS.read().unwrap();
             match (self, rhs) {
-                (
-                    Unit::Composed(id),
-                    Unit::Derived { .. } | Unit::Base { .. },
-                ) => {
-                    let mut lhs_comp = compositions.get(&id).unwrap().clone();
+                (Unit::Composed(id), rhs) if rhs.is_atomic() => {
+                    let mut lhs_comp = COMPOSITIONS.get_cloned(id).unwrap();
 
                     lhs_comp.push((rhs, 1));
                     lhs_comp
@@ -250,11 +310,8 @@ impl Mul for Unit {
 
                 (_, Unit::Unitless) => return self,
 
-                (
-                    Unit::Derived { .. } | Unit::Base { .. },
-                    Unit::Composed(id),
-                ) => {
-                    let mut rhs_comp = compositions.get(&id).unwrap().clone();
+                (lhs, Unit::Composed(id)) if lhs.is_atomic() => {
+                    let mut rhs_comp = COMPOSITIONS.get_cloned(id).unwrap();
                     let mut new_comp = vec![(self, 1)];
 
                     new_comp.append(&mut rhs_comp);
@@ -263,19 +320,17 @@ impl Mul for Unit {
                 (Unit::Unitless, _) => return rhs,
 
                 (Unit::Composed(lhs_id), Unit::Composed(rhs_id)) => {
-                    let mut lhs_comp =
-                        compositions.get(&lhs_id).unwrap().clone();
-                    let mut rhs_comp =
-                        compositions.get(&rhs_id).unwrap().clone();
+                    let mut lhs_comp = COMPOSITIONS.get_cloned(lhs_id).unwrap();
+                    let mut rhs_comp = COMPOSITIONS.get_cloned(rhs_id).unwrap();
 
                     lhs_comp.append(&mut rhs_comp);
                     lhs_comp
                 }
 
-                (
-                    Unit::Derived { .. } | Unit::Base { .. },
-                    Unit::Derived { .. } | Unit::Base { .. },
-                ) => vec![(self, 1), (rhs, 1)],
+                (lhs, rhs) if lhs.is_atomic() && rhs.is_atomic() => {
+                    vec![(lhs, 1), (rhs, 1)]
+                }
+                _ => unreachable!(),
             }
         };
 
@@ -302,24 +357,66 @@ impl BitXor<i8> for Unit {
     fn bitxor(self, exp: i8) -> Self::Output {
         match self {
             Self::Unitless => self,
-            Self::Base { .. } | Self::Derived { .. } => {
-                Unit::new_composition(vec![(self, exp)])
-            }
+            _ if self.is_atomic() => Unit::new_composition(vec![(self, exp)]),
             Self::Composed(id) => {
-                let comp = {
-                    let compositions = COMPOSITIONS.read().unwrap();
-
-                    compositions
-                        .get(&id)
-                        .unwrap()
-                        .iter()
-                        .cloned()
-                        .map(|(unit, e)| (unit, e * exp))
-                        .collect()
-                };
+                let comp = COMPOSITIONS
+                    .get_cloned(id)
+                    .unwrap()
+                    .iter()
+                    .map(|(unit, e)| (*unit, e * exp))
+                    .collect();
 
                 Unit::new_composition(comp)
             }
+            _ => unreachable!(),
         }
+    }
+}
+
+impl Mul<Unit> for Quantity {
+    type Output = Quantity;
+
+    fn mul(self, unit: Unit) -> Self::Output {
+        Quantity(self.0, self.1 * unit)
+    }
+}
+
+impl Mul<Unit> for f64 {
+    type Output = Quantity;
+
+    fn mul(self, unit: Unit) -> Self::Output {
+        Quantity(Complex { re: self, im: 0.0 }, unit)
+    }
+}
+
+impl Mul<Unit> for Complex64 {
+    type Output = Quantity;
+
+    fn mul(self, unit: Unit) -> Self::Output {
+        Quantity(self, unit)
+    }
+}
+
+impl Div<Unit> for f64 {
+    type Output = Quantity;
+
+    fn div(self, unit: Unit) -> Self::Output {
+        Quantity(Complex { re: self, im: 0.0 }, unit ^ -1)
+    }
+}
+
+impl Div<Unit> for Complex64 {
+    type Output = Quantity;
+
+    fn div(self, unit: Unit) -> Self::Output {
+        Quantity(self, unit ^ -1)
+    }
+}
+
+impl Div<Unit> for Quantity {
+    type Output = Quantity;
+
+    fn div(self, unit: Unit) -> Self::Output {
+        Quantity(self.0, self.1 / unit)
     }
 }

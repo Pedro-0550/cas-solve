@@ -4,6 +4,7 @@
 #![feature(const_ops)]
 #![feature(generic_atomic)]
 
+mod arena;
 mod ast;
 mod dimension;
 mod eq;

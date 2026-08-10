@@ -7,66 +7,59 @@ use num::complex::Complex64;
 
 use crate::{
     Complex,
+    arena::{Arena, Handle},
     ast::intrinsic::Intrinsic,
     dimension::{Dimension, DimensionalAnalysisError, Quantity, Unit},
     symbol::Symbol,
 };
 
+/* -------------------------------- CONSTANTS ------------------------------- */
+
+const NODES: Arena<ExprNode> = Arena::new();
+
 /* --------------------------------- MODULES -------------------------------- */
 
-mod intrinsic;
-mod ops;
+pub mod intrinsic;
+pub mod ops;
 
 /* ---------------------------------- ENUMS --------------------------------- */
 
 #[derive(PartialEq, Clone, Debug)]
-pub enum Expr {
+pub enum ExprNode {
     Symbol(Symbol),
     Const(Quantity),
 
-    Intrinsic(Box<Intrinsic>),
-    ElementwiseIntrinsic(Box<Intrinsic>),
+    Intrinsic(Intrinsic),
+    ElementwiseIntrinsic(Intrinsic),
 
     Matrix { rows: usize, cols: usize, elements: Vec<Expr> },
 }
 
-impl From<Intrinsic> for Expr {
-    fn from(v: Intrinsic) -> Self {
-        Self::Intrinsic(Box::new(v))
-    }
-}
-
-impl From<Quantity> for Expr {
-    fn from(v: Quantity) -> Self {
-        Self::Const(v)
-    }
-}
-
-impl From<Complex> for Expr {
-    fn from(v: Complex) -> Self {
-        Self::Const(v.into())
-    }
-}
-
-impl From<f64> for Expr {
-    fn from(v: f64) -> Self {
-        Self::Const(v.into())
-    }
-}
-
-impl From<Symbol> for Expr {
-    fn from(v: Symbol) -> Self {
-        Self::Symbol(v)
-    }
-}
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub struct Expr(Handle<ExprNode>);
 
 impl Expr {
+    pub fn node(&self) -> ExprNode {
+        NODES.get_cloned(self.0).unwrap()
+    }
+}
+
+impl ExprNode {
+    pub fn register(self) -> Expr {
+        if let Some((existing_id, _)) = NODES.find(|_, n| *n == self) {
+            return Expr(existing_id);
+        }
+
+        let id = NODES.insert(self);
+        Expr(id)
+    }
+
     /// Returns `true` if the expr is [`Symbol`].
     ///
     /// [`Symbol`]: Expr::Symbol
     #[must_use]
     pub fn is_symbol(&self) -> bool {
-        matches!(self, Self::Symbol(..))
+        matches!(self, ExprNode::Symbol(..))
     }
 
     pub fn as_symbol(&self) -> Option<&Symbol> {
@@ -93,7 +86,7 @@ impl Expr {
         matches!(self, Self::Intrinsic(..))
     }
 
-    pub fn as_intrinsic(&self) -> Option<&Box<Intrinsic>> {
+    pub fn as_intrinsic(&self) -> Option<&Intrinsic> {
         if let Self::Intrinsic(v) = self { Some(v) } else { None }
     }
 
@@ -105,7 +98,7 @@ impl Expr {
         matches!(self, Self::ElementwiseIntrinsic(..))
     }
 
-    pub fn as_elementwise_intrinsic(&self) -> Option<&Box<Intrinsic>> {
+    pub fn as_elementwise_intrinsic(&self) -> Option<&Intrinsic> {
         if let Self::ElementwiseIntrinsic(v) = self { Some(v) } else { None }
     }
 

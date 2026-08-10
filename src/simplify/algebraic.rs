@@ -1,7 +1,7 @@
 use crate::{identity, simplify::Identity, symbol::Symbol};
 
-fn algebraic_identities() -> &'static [Identity] {
-    &[
+fn algebraic_identities() -> [Identity; 12] {
+    [
         // Addition
         identity!(x; x + 0.0 => x),
         identity!(x; x - 0.0 => x),

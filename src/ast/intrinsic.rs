@@ -1,4 +1,7 @@
-use crate::ast::Expr;
+use crate::{
+    ast::Expr,
+    symbol::constants::{self, e},
+};
 
 #[derive(PartialEq, Clone, Debug)]
 pub enum Intrinsic {
@@ -35,21 +38,26 @@ pub fn log(base: impl Into<Expr>, x: impl Into<Expr>) -> Expr {
 }
 
 pub fn tan(x: impl Into<Expr>) -> Expr {
+    let x = x.into();
     sin(x) / cos(x)
 }
 
 pub fn ln(x: impl Into<Expr>) -> Expr {
-    log()
+    log(e, x)
+}
+
+pub fn exp(x: impl Into<Expr>) -> Expr {
+    e ^ x.into()
 }
 
 pub fn asin(x: impl Into<Expr>) -> Expr {
-    Expr::Intrinsic(Intrinsic::Asin(x.into()))
+    Intrinsic::Asin(x.into()).into()
 }
 
 pub fn acos(x: impl Into<Expr>) -> Expr {
-    Expr::Intrinsic(Intrinsic::Acos(x.into()))
+    Intrinsic::Acos(x.into()).into()
 }
 
-pub fn atan(expr: impl Into<Expr>) -> Expr {
-    ()
-}
+// pub fn atan(expr: impl Into<Expr>) -> Expr {
+//     ()
+// }

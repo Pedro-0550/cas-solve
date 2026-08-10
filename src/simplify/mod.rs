@@ -3,6 +3,7 @@ use crate::ast::Expr;
 /* --------------------------------- MODULES -------------------------------- */
 
 mod algebraic;
+mod trig;
 
 #[macro_export]
 macro_rules! identity {

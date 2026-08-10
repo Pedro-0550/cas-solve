@@ -6,22 +6,25 @@ use std::{
     rc::Rc,
     sync::{
         LazyLock, Mutex, RwLock,
-        atomic::{AtomicU16, AtomicUsize, Ordering},
+        atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering},
     },
 };
 
 use crate::{
     Complex,
+    arena::{Arena, Handle},
     ast::Expr,
     dimension::{Dimension, Unit},
 };
 
+/* --------------------------------- MODULES -------------------------------- */
+
+pub mod constants;
+
 /* -------------------------------- CONSTANTS ------------------------------- */
 
-static SYMBOLS: LazyLock<RwLock<HashMap<SymbolId, SymbolInfo>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
-
-static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
+static SYMBOLS: Arena<SymbolInfo> = Arena::new();
+static CONSTANTS_REGISTERED: AtomicBool = AtomicBool::new(false);
 
 /* --------------------------------- STRUCTS -------------------------------- */
 
@@ -30,46 +33,35 @@ static NEXT_ID: AtomicUsize = AtomicUsize::new(0);
 //     next_id: SymbolId,
 // }
 
-#[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
-pub struct SymbolId(u32);
-
+#[derive(Clone)]
 pub struct SymbolInfo {
     name: String,
     unit: Unit,
 }
 
 #[derive(PartialEq, Clone, Debug, Copy, Hash, Eq)]
-pub struct Symbol(SymbolId);
+pub struct Symbol(Handle<SymbolInfo>);
 
 /* ---------------------------------- IMPLS --------------------------------- */
 
 impl Symbol {
     pub fn new(name: &str, unit: Unit) -> Self {
-        let mut symbols = SYMBOLS.write().unwrap();
+        if (!CONSTANTS_REGISTERED.load(Ordering::SeqCst)) {
+            constants::register();
+            CONSTANTS_REGISTERED.store(true, Ordering::SeqCst);
+        }
 
-        // if let Some((&id, _)) =
-        //     symbols.iter().find(|(_, info)| info.name == name)
-        // {
-        //     return Symbol(id);
-        // }
+        let handle = SYMBOLS.insert(SymbolInfo { name: name.to_owned(), unit });
 
-        let id = SymbolId(NEXT_ID.fetch_add(1, Ordering::Relaxed) as u32);
-
-        symbols.insert(id, SymbolInfo { name: name.to_owned(), unit });
-
-        Symbol(id)
+        Symbol(handle)
     }
 
     pub fn name(&self) -> String {
-        let symbols = SYMBOLS.read().unwrap();
-
-        symbols.get(&self.0).expect("invalid SymbolId").name.clone()
+        SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").name
     }
 
     pub fn unit(&self) -> Unit {
-        let symbols = SYMBOLS.read().unwrap();
-
-        symbols.get(&self.0).expect("invalid SymbolId").unit
+        SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").unit
     }
 }
 
