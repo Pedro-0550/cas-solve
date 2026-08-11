@@ -46,7 +46,7 @@ pub const arcsec: Unit =
 
 /// Electron-volt
 pub const eV: Unit =
-    Unit::Scaled { symbol: "eV", base: &J, scale: 1.602_176_634e-19 };
+    Unit::Scaled { symbol: "eV", base: &J, scale: 1.602176634e-19 };
 
 /// Small calorie
 pub const cal: Unit = Unit::Scaled { symbol: "cal", base: &J, scale: 4.184 };
@@ -67,3 +67,18 @@ pub const au: Unit =
 /// Light-year
 pub const ly: Unit =
     Unit::Scaled { symbol: "ly", base: &m, scale: 9.460_730_472_580_8e15 };
+
+// Pressure
+
+/// Standard atmospheric pressure
+pub const atm: Unit =
+    Unit::Scaled { symbol: "atm", base: &Pa, scale: 9.86923e6 };
+
+/// Bar
+pub const bar: Unit = Unit::Scaled { symbol: "bar", base: &Pa, scale: 1e5 };
+
+/// Pounds per square inch
+pub const psi: Unit =
+    Unit::Scaled { symbol: "psi", base: &Pa, scale: 1.45038e4 };
+
+// Volume

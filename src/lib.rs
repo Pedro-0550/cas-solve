@@ -4,14 +4,20 @@
 #![feature(const_ops)]
 #![feature(generic_atomic)]
 
+use std::ops::Mul;
+
+use num::Complex;
+
+mod ad;
 mod arena;
 mod ast;
 mod dimension;
 mod eq;
-mod expr;
-mod intrinsic;
+mod macros;
+mod scalar;
 mod simplify;
 mod symbol;
+mod util;
 mod var;
 
-pub type Complex = num::Complex<f64>;
+pub use scalar::*;

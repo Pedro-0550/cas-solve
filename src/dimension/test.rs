@@ -18,3 +18,14 @@ pub fn equivalence() {
     assert!((J * Hz).dimensional_eq(J / s));
     assert!(!(eV * s).dimensional_eq(J / s));
 }
+
+#[test]
+pub fn normalization() {
+    assert_eq!((10.0 * eV / J).normalize(), 1.602176634e-18)
+}
+
+#[test]
+pub fn analysis() {
+    assert_eq!((eV / J).analyze().unwrap(), DIMENSIONLESS);
+    assert_eq!((eV / J).analyze().unwrap(), DIMENSIONLESS);
+}

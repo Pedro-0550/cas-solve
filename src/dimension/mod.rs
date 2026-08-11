@@ -1,24 +1,29 @@
 use core::fmt;
 use std::{
     collections::HashMap,
-    ops::{BitXor, Div, Mul},
+    fmt::{Display, Write},
+    ops::{Add, BitXor, Div, Mul, Sub},
     sync::{
         LazyLock, Mutex, RwLock,
         atomic::{Atomic, AtomicU16, AtomicUsize, Ordering},
     },
 };
 
-use num::{complex::Complex64, pow::Pow};
+use itertools::Itertools;
+use num::{Num, complex::Complex64, pow::Pow};
 use paste::paste;
 use thiserror::Error;
 
 use crate::{
-    Complex,
+    Scalar,
     arena::{Arena, Handle},
     ast::Expr,
+    dimension::isq::DIMENSIONLESS,
+    util::to_superscript,
 };
 
 pub mod isq;
+pub mod ops;
 pub mod other;
 pub mod si;
 
@@ -54,7 +59,7 @@ pub trait Dimensioned {
 /* --------------------------------- STRUCTS -------------------------------- */
 
 #[derive(PartialEq, Clone, Copy, Debug)]
-pub struct Quantity(Complex, Unit);
+pub struct Quantity(Scalar, Unit);
 
 #[derive(PartialEq, Eq, Clone, Copy, Debug, Hash)]
 #[allow(non_snake_case)]
@@ -106,7 +111,7 @@ impl Quantity {
     /// If it does not contain any scale, self is returned instead.
     ///
     /// For example, `10 eV` becomes `1.602176634e-18 J`.
-    /// This also folds compositions of scaled but dimensionally equal units: `10 eV/J` becomes `1.602176634e-18 (unitless)`
+    /// This also simplifies compositions of scaled but dimensionally equal units: `10 eV/J` becomes `1.602176634e-18 (unitless)`
     pub fn normalize(self) -> Quantity {
         let Quantity(mut current_val, mut current_unit) = self;
 
@@ -141,70 +146,12 @@ impl Quantity {
         Quantity(current_val, current_unit)
     }
 
-    pub fn value(&self) -> Complex {
+    pub fn value(&self) -> Scalar {
         return self.0;
     }
 
     pub fn unit(&self) -> Unit {
         return self.1;
-    }
-}
-
-impl From<Complex> for Quantity {
-    fn from(value: Complex) -> Self {
-        Quantity(value, Unit::Unitless)
-    }
-}
-
-impl From<f64> for Quantity {
-    fn from(value: f64) -> Self {
-        Quantity(Complex { re: value, im: 0.0 }, Unit::Unitless)
-    }
-}
-
-impl Dimension {
-    pub const fn pow(self, exponent: i8) -> Self {
-        Self {
-            T: self.T * exponent,
-            L: self.L * exponent,
-            M: self.M * exponent,
-            I: self.I * exponent,
-            Θ: self.Θ * exponent,
-            J: self.J * exponent,
-            N: self.N * exponent,
-        }
-    }
-}
-
-impl const Mul for Dimension {
-    type Output = Self;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        Self {
-            T: self.T + rhs.T,
-            L: self.L + rhs.L,
-            M: self.M + rhs.M,
-            I: self.I + rhs.I,
-            N: self.N + rhs.N,
-            Θ: self.Θ + rhs.Θ,
-            J: self.J + rhs.J,
-        }
-    }
-}
-
-impl const Div for Dimension {
-    type Output = Self;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        Self {
-            T: self.T - rhs.T,
-            L: self.L - rhs.L,
-            M: self.M - rhs.M,
-            I: self.I - rhs.I,
-            N: self.N - rhs.N,
-            Θ: self.Θ - rhs.Θ,
-            J: self.J - rhs.J,
-        }
     }
 }
 
@@ -279,6 +226,16 @@ impl Unit {
     fn new_composition(mut comp: Composition) -> Self {
         fold_composition(&mut comp);
 
+        if comp.len() == 0 {
+            return Unit::Unitless;
+        } else if comp.len() == 1
+            && let Some((unit, exp)) = comp.first()
+            && unit.is_atomic()
+            && *exp == 1
+        {
+            return *unit;
+        }
+
         if let Some((existing_id, _)) = COMPOSITIONS.find(|_, c| **c == comp) {
             return Unit::Composed(existing_id);
         }
@@ -291,132 +248,124 @@ impl Unit {
 
 impl Dimensioned for Unit {
     fn analyze(&self) -> Result<Dimension, DimensionalAnalysisError> {
-        todo!()
-    }
-}
+        let mut current_dim = DIMENSIONLESS;
 
-impl Mul for Unit {
-    type Output = Unit;
-
-    fn mul(self, rhs: Self) -> Self::Output {
-        let result = {
-            match (self, rhs) {
-                (Unit::Composed(id), rhs) if rhs.is_atomic() => {
-                    let mut lhs_comp = COMPOSITIONS.get_cloned(id).unwrap();
-
-                    lhs_comp.push((rhs, 1));
-                    lhs_comp
-                }
-
-                (_, Unit::Unitless) => return self,
-
-                (lhs, Unit::Composed(id)) if lhs.is_atomic() => {
-                    let mut rhs_comp = COMPOSITIONS.get_cloned(id).unwrap();
-                    let mut new_comp = vec![(self, 1)];
-
-                    new_comp.append(&mut rhs_comp);
-                    new_comp
-                }
-                (Unit::Unitless, _) => return rhs,
-
-                (Unit::Composed(lhs_id), Unit::Composed(rhs_id)) => {
-                    let mut lhs_comp = COMPOSITIONS.get_cloned(lhs_id).unwrap();
-                    let mut rhs_comp = COMPOSITIONS.get_cloned(rhs_id).unwrap();
-
-                    lhs_comp.append(&mut rhs_comp);
-                    lhs_comp
-                }
-
-                (lhs, rhs) if lhs.is_atomic() && rhs.is_atomic() => {
-                    vec![(lhs, 1), (rhs, 1)]
-                }
-                _ => unreachable!(),
-            }
-        };
-
-        Unit::new_composition(result)
-    }
-}
-
-impl Div for Unit {
-    type Output = Unit;
-
-    fn div(self, rhs: Self) -> Self::Output {
-        self * rhs ^ (-1)
-    }
-}
-
-// Cursed cursed cursed cursed cursed cursed
-//
-//
-//
-// cursed
-impl BitXor<i8> for Unit {
-    type Output = Unit;
-
-    fn bitxor(self, exp: i8) -> Self::Output {
         match self {
-            Self::Unitless => self,
-            _ if self.is_atomic() => Unit::new_composition(vec![(self, exp)]),
-            Self::Composed(id) => {
-                let comp = COMPOSITIONS
-                    .get_cloned(id)
-                    .unwrap()
-                    .iter()
-                    .map(|(unit, e)| (*unit, e * exp))
-                    .collect();
-
-                Unit::new_composition(comp)
+            Unit::Base { dimension, .. } => {
+                current_dim *= *dimension;
             }
-            _ => unreachable!(),
+            Unit::Derived { base, .. } => {
+                for (unit, exp) in *base {
+                    current_dim *= unit.analyze()? ^ *exp;
+                }
+            }
+            Unit::Scaled { base, .. } => {
+                current_dim *= base.analyze()?;
+            }
+            Unit::Composed(id) => {
+                for (unit, exp) in COMPOSITIONS.get_cloned(*id).unwrap() {
+                    current_dim *= unit.analyze()? ^ exp;
+                }
+            }
+            Unit::Unitless => (),
+        }
+
+        Ok(current_dim)
+    }
+}
+
+impl Dimensioned for Quantity {
+    fn analyze(&self) -> Result<Dimension, DimensionalAnalysisError> {
+        self.1.analyze()
+    }
+}
+
+impl Display for Unit {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Unit::Base { symbol, .. }
+            | Unit::Derived { symbol, .. }
+            | Unit::Scaled { symbol, .. } => f.write_str(symbol),
+            Unit::Unitless => f.write_str("1"),
+            Unit::Composed(id) => {
+                let comp = COMPOSITIONS.get_cloned(*id).unwrap();
+                let (mut num, mut denom) = (Vec::new(), Vec::new());
+
+                for (unit, exp) in comp {
+                    if exp > 0 {
+                        num.push((unit, exp));
+                    } else {
+                        denom.push((unit, exp));
+                    }
+                }
+
+                match (num.len(), denom.len()) {
+                    (1.., ..) => {
+                        for (i, (unit, exp)) in num.iter().enumerate() {
+                            unit.fmt(f)?;
+
+                            if *exp != 1 {
+                                f.write_str("^");
+                                f.write_str(&exp.to_string());
+                            }
+
+                            if i < num.len() - 1 {
+                                f.write_str("·")?;
+                            }
+                        }
+
+                        if denom.len() == 0 {
+                            return Ok(());
+                        }
+
+                        let parenthesize_denom = denom.len() > 1;
+
+                        f.write_str("/")?;
+
+                        if parenthesize_denom {
+                            f.write_str("(")?;
+                        }
+
+                        for (i, (unit, exp)) in denom.iter().enumerate() {
+                            unit.fmt(f)?;
+
+                            if *exp != -1 {
+                                f.write_str(&to_superscript(exp.abs() as i32))?;
+                            }
+
+                            if i < denom.len() - 1 {
+                                f.write_str("·")?;
+                            }
+                        }
+
+                        if parenthesize_denom {
+                            f.write_str(")")?;
+                        }
+                    }
+                    (0, 1..) => {
+                        for (i, (unit, exp)) in denom.iter().enumerate() {
+                            unit.fmt(f)?;
+
+                            f.write_str(&to_superscript(*exp as i32))?;
+
+                            if i < num.len() - 1 {
+                                f.write_str(" * ")?;
+                            }
+                        }
+                    }
+                    _ => unreachable!(),
+                }
+
+                Ok(())
+            }
         }
     }
 }
 
-impl Mul<Unit> for Quantity {
-    type Output = Quantity;
-
-    fn mul(self, unit: Unit) -> Self::Output {
-        Quantity(self.0, self.1 * unit)
-    }
-}
-
-impl Mul<Unit> for f64 {
-    type Output = Quantity;
-
-    fn mul(self, unit: Unit) -> Self::Output {
-        Quantity(Complex { re: self, im: 0.0 }, unit)
-    }
-}
-
-impl Mul<Unit> for Complex64 {
-    type Output = Quantity;
-
-    fn mul(self, unit: Unit) -> Self::Output {
-        Quantity(self, unit)
-    }
-}
-
-impl Div<Unit> for f64 {
-    type Output = Quantity;
-
-    fn div(self, unit: Unit) -> Self::Output {
-        Quantity(Complex { re: self, im: 0.0 }, unit ^ -1)
-    }
-}
-
-impl Div<Unit> for Complex64 {
-    type Output = Quantity;
-
-    fn div(self, unit: Unit) -> Self::Output {
-        Quantity(self, unit ^ -1)
-    }
-}
-
-impl Div<Unit> for Quantity {
-    type Output = Quantity;
-
-    fn div(self, unit: Unit) -> Self::Output {
-        Quantity(self.0, self.1 / unit)
+impl Display for Quantity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        self.0.fmt(f)?;
+        f.write_char(' ')?;
+        self.1.fmt(f)
     }
 }

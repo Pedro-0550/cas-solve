@@ -1,12 +1,12 @@
 use std::{
-    fmt::Display,
+    fmt::{Display, Pointer},
     ops::{Add, Mul},
 };
 
 use num::complex::Complex64;
 
 use crate::{
-    Complex,
+    Scalar,
     arena::{Arena, Handle},
     ast::intrinsic::Intrinsic,
     dimension::{Dimension, DimensionalAnalysisError, Quantity, Unit},
@@ -15,17 +15,19 @@ use crate::{
 
 /* -------------------------------- CONSTANTS ------------------------------- */
 
-const NODES: Arena<ExprNode> = Arena::new();
+static NODES: Arena<Node> = Arena::new();
 
 /* --------------------------------- MODULES -------------------------------- */
 
 pub mod intrinsic;
 pub mod ops;
 
+#[cfg(test)]
+mod test;
 /* ---------------------------------- ENUMS --------------------------------- */
 
 #[derive(PartialEq, Clone, Debug)]
-pub enum ExprNode {
+pub enum Node {
     Symbol(Symbol),
     Const(Quantity),
 
@@ -36,15 +38,15 @@ pub enum ExprNode {
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub struct Expr(Handle<ExprNode>);
+pub struct Expr(Handle<Node>);
 
 impl Expr {
-    pub fn node(&self) -> ExprNode {
+    pub fn node(&self) -> Node {
         NODES.get_cloned(self.0).unwrap()
     }
 }
 
-impl ExprNode {
+impl Node {
     pub fn register(self) -> Expr {
         if let Some((existing_id, _)) = NODES.find(|_, n| *n == self) {
             return Expr(existing_id);
@@ -59,7 +61,7 @@ impl ExprNode {
     /// [`Symbol`]: Expr::Symbol
     #[must_use]
     pub fn is_symbol(&self) -> bool {
-        matches!(self, ExprNode::Symbol(..))
+        matches!(self, Node::Symbol(..))
     }
 
     pub fn as_symbol(&self) -> Option<&Symbol> {
@@ -113,6 +115,11 @@ impl ExprNode {
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        todo!()
+        match self.node() {
+            Node::Const(qty) => qty.fmt(f),
+            Node::Intrinsic(intr) => intr.fmt(f),
+            Node::Symbol(symb) => symb.fmt(f),
+            _ => todo!(),
+        }
     }
 }

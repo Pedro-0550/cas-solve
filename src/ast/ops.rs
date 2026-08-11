@@ -3,9 +3,11 @@ use std::{
     sync::LazyLock,
 };
 
+use num::pow::Pow;
+
 use crate::{
-    Complex,
-    ast::{Expr, ExprNode, intrinsic::Intrinsic},
+    Scalar,
+    ast::{Expr, Node, intrinsic::Intrinsic},
     dimension::Quantity,
     symbol::Symbol,
 };
@@ -14,38 +16,44 @@ use crate::{
 
 impl<T> From<T> for Expr
 where
-    ExprNode: From<T>,
+    Node: From<T>,
 {
     fn from(value: T) -> Self {
-        ExprNode::from(value).register()
+        Node::from(value).register()
     }
 }
 
-impl From<Intrinsic> for ExprNode {
+impl From<Intrinsic> for Node {
     fn from(v: Intrinsic) -> Self {
         Self::Intrinsic(v)
     }
 }
 
-impl From<Quantity> for ExprNode {
+impl From<Quantity> for Node {
     fn from(v: Quantity) -> Self {
         Self::Const(v)
     }
 }
 
-impl From<Complex> for ExprNode {
-    fn from(v: Complex) -> Self {
+impl From<Scalar> for Node {
+    fn from(v: Scalar) -> Self {
         Self::Const(v.into())
     }
 }
 
-impl From<f64> for ExprNode {
+impl From<f64> for Node {
     fn from(v: f64) -> Self {
         Self::Const(v.into())
     }
 }
 
-impl From<Symbol> for ExprNode {
+impl From<i64> for Node {
+    fn from(v: i64) -> Self {
+        Self::Const(v.into())
+    }
+}
+
+impl From<Symbol> for Node {
     fn from(v: Symbol) -> Self {
         Self::Symbol(v)
     }
@@ -98,10 +106,13 @@ macro_rules! impl_expr_ops {
     };
 }
 
-impl_expr_ops!(Expr, [f64, Complex, Quantity, Symbol], symmetrical);
+impl_expr_ops!(&Expr, [i64, f64, Scalar, Quantity, Symbol], symmetrical);
+impl_expr_ops!(&Expr, [&Expr], normal);
+
+impl_expr_ops!(Expr, [i64, f64, Scalar, Quantity, Symbol, &Expr], symmetrical);
 impl_expr_ops!(Expr, [Expr], normal);
 
-impl_expr_ops!(Symbol, [f64, Complex, Quantity], symmetrical);
+impl_expr_ops!(Symbol, [i64, f64, Scalar, Quantity], symmetrical);
 impl_expr_ops!(Symbol, [Symbol], normal);
 
 impl Neg for Expr {

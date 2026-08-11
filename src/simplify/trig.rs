@@ -7,6 +7,7 @@ use crate::{
     simplify::Identity,
     symbol::Symbol,
 };
+
 fn trig_identities() -> [Identity; 5] {
     [
         identity!(x; sin(x) ^ 2.0 + cos(x) ^ 2.0 => 1.0),

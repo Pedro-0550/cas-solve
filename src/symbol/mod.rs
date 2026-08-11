@@ -1,6 +1,7 @@
 use std::{
     borrow::Cow,
     collections::HashMap,
+    fmt::Display,
     hash::Hash,
     ops::{Add, Mul},
     rc::Rc,
@@ -46,7 +47,7 @@ pub struct Symbol(Handle<SymbolInfo>);
 
 impl Symbol {
     pub fn new(name: &str, unit: Unit) -> Self {
-        if (!CONSTANTS_REGISTERED.load(Ordering::SeqCst)) {
+        if !CONSTANTS_REGISTERED.load(Ordering::SeqCst) {
             constants::register();
             CONSTANTS_REGISTERED.store(true, Ordering::SeqCst);
         }
@@ -62,6 +63,12 @@ impl Symbol {
 
     pub fn unit(&self) -> Unit {
         SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").unit
+    }
+}
+
+impl Display for Symbol {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.name())
     }
 }
 

@@ -10,7 +10,7 @@ pub const m: Unit = Unit::Base { dimension: LENGTH, symbol: "m" };
 
 pub const kg: Unit = Unit::Base { dimension: MASS, symbol: "kg" };
 
-pub const A: Unit = Unit::Base { dimension: CURRENT, symbol: "A" };
+pub const A: Unit = Unit::Base { dimension: ELECTRIC_CURRENT, symbol: "A" };
 
 pub const K: Unit = Unit::Base { dimension: TEMPERATURE, symbol: "K" };
 

@@ -14,7 +14,7 @@ pub const LENGTH: Dimension =
 pub const MASS: Dimension =
     Dimension { T: 0, L: 0, M: 1, I: 0, Θ: 0, J: 0, N: 0 };
 
-pub const CURRENT: Dimension =
+pub const ELECTRIC_CURRENT: Dimension =
     Dimension { T: 0, L: 0, M: 0, I: 1, Θ: 0, J: 0, N: 0 };
 
 pub const TEMPERATURE: Dimension =
