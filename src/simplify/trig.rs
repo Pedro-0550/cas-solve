@@ -3,17 +3,17 @@ use crate::{
         intrinsic::{acos, asin, cos, sin},
         *,
     },
-    identity,
-    simplify::Identity,
+    simplify::Transformation,
     symbol::Symbol,
+    transformation,
 };
 
-fn trig_identities() -> [Identity; 5] {
+pub fn transformations() -> [Transformation; 5] {
     [
-        identity!(x; sin(x) ^ 2.0 + cos(x) ^ 2.0 => 1.0),
-        identity!(x; sin(-x) => -sin(x)),
-        identity!(x; cos(-x) => cos(x)),
-        identity!(x; sin(asin(x)) => x),
-        identity!(x; cos(acos(x)) => x),
+        transformation!(x; sin(x) ^ 2.0 + cos(x) ^ 2.0 => 1.0),
+        transformation!(x; sin(-x) => -sin(x)),
+        transformation!(x; cos(-x) => cos(x)),
+        transformation!(x; sin(asin(x)) => x),
+        transformation!(x; cos(acos(x)) => x),
     ]
 }

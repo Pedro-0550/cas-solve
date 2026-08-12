@@ -52,6 +52,10 @@ impl Symbol {
             CONSTANTS_REGISTERED.store(true, Ordering::SeqCst);
         }
 
+        if let Some((id, _)) = SYMBOLS.find(|k, v| &*v.name == name) {
+            return Symbol(id);
+        }
+
         let handle = SYMBOLS.insert(SymbolInfo { name: name.to_owned(), unit });
 
         Symbol(handle)

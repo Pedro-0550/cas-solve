@@ -5,8 +5,16 @@ use crate::{
         Expr, Node,
         intrinsic::{Intrinsic, ln},
     },
-    symbol::Symbol,
+    simplify::Simplify,
+    symbol::{Symbol, constants::e},
 };
+
+/* --------------------------------- MODULES -------------------------------- */
+
+#[cfg(test)]
+mod test;
+
+/* --------------------------------- STRUCTS -------------------------------- */
 
 /// Todo: Explain
 pub struct Dual {
@@ -14,9 +22,13 @@ pub struct Dual {
     pub grad: Vec<Complex64>,
 }
 
+/* --------------------------------- TRAITS --------------------------------- */
+
 pub trait Differentiable {
     fn diff(&self, symbol: Symbol) -> Expr;
 }
+
+/* ---------------------------------- IMPLS --------------------------------- */
 
 impl Differentiable for Expr {
     fn diff(&self, symbol: Symbol) -> Expr {
@@ -48,17 +60,22 @@ impl Differentiable for Intrinsic {
                     .collect(),
             )
             .into(),
-            Intrinsic::Div { num, denom } => {
-                (num.diff(symbol) * denom - num * denom.diff(symbol))
-                    / (denom ^ 2)
-            }
+            Intrinsic::Inv(expr) => -expr.diff(symbol) / (expr ^ 2),
             Intrinsic::Neg(expr) => -expr.diff(symbol),
             Intrinsic::Pow { base, exp } => {
                 (base ^ exp)
                     * (base.diff(symbol) * exp / base
                         + exp.diff(symbol) * ln(base))
             }
+            Intrinsic::Log { base, arg } => {
+                if *base == e.into() {
+                    arg.diff(symbol) / arg
+                } else {
+                    (ln(arg) / ln(base)).diff(symbol)
+                }
+            }
             _ => todo!(),
         }
+        // .simplify()
     }
 }

@@ -286,7 +286,7 @@ impl Display for Unit {
             Unit::Base { symbol, .. }
             | Unit::Derived { symbol, .. }
             | Unit::Scaled { symbol, .. } => f.write_str(symbol),
-            Unit::Unitless => f.write_str("1"),
+            Unit::Unitless => Ok(()),
             Unit::Composed(id) => {
                 let comp = COMPOSITIONS.get_cloned(*id).unwrap();
                 let (mut num, mut denom) = (Vec::new(), Vec::new());
@@ -305,8 +305,7 @@ impl Display for Unit {
                             unit.fmt(f)?;
 
                             if *exp != 1 {
-                                f.write_str("^");
-                                f.write_str(&exp.to_string());
+                                f.write_str(&to_superscript(*exp as i32))?;
                             }
 
                             if i < num.len() - 1 {
@@ -365,7 +364,12 @@ impl Display for Unit {
 impl Display for Quantity {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         self.0.fmt(f)?;
-        f.write_char(' ')?;
-        self.1.fmt(f)
+
+        if self.1 != Unit::Unitless {
+            f.write_char(' ')?;
+            self.1.fmt(f)?;
+        }
+
+        Ok(())
     }
 }

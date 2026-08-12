@@ -95,7 +95,7 @@ macro_rules! impl_expr_ops {
         $(
             impl_op!($t0, $ty, Add, add, |lhs, rhs| Intrinsic::Add(vec![lhs, rhs]), $config);
             impl_op!($t0, $ty, Mul, mul, |lhs, rhs| Intrinsic::Mul(vec![lhs, rhs]), $config);
-            impl_op!($t0, $ty, Div, div, |lhs, rhs| Intrinsic::Div {num: lhs,denom: rhs }, $config);
+            impl_op!($t0, $ty, Div, div, |lhs, rhs| Intrinsic::Mul(vec![lhs, Intrinsic::Inv(rhs).into()]), $config);
             impl_op!($t0, $ty, Sub, sub, |lhs, rhs: Expr| Intrinsic::Add(vec![lhs, -rhs]), $config);
             impl_op!($t0, $ty, BitXor, bitxor, |lhs, rhs: Expr| Intrinsic::Pow {
                 base: lhs,

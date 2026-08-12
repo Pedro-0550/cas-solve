@@ -1,4 +1,4 @@
-use std::fmt::Display;
+use std::fmt::{Display, Pointer};
 
 use num::pow::Pow;
 
@@ -13,7 +13,7 @@ use crate::{
 pub enum Intrinsic {
     Add(Vec<Expr>),
     Mul(Vec<Expr>),
-    Div { num: Expr, denom: Expr },
+    // Div { num: Expr, denom: Expr },
     Neg(Expr),
 
     Sin(Expr),
@@ -52,14 +52,6 @@ impl Intrinsic {
 
     pub fn as_mul(&self) -> Option<&Vec<Expr>> {
         if let Self::Mul(v) = self { Some(v) } else { None }
-    }
-
-    /// Returns `true` if the intrinsic is [`Div`].
-    ///
-    /// [`Div`]: Intrinsic::Div
-    #[must_use]
-    pub fn is_div(&self) -> bool {
-        matches!(self, Self::Div { .. })
     }
 
     /// Returns `true` if the intrinsic is [`Neg`].
@@ -169,6 +161,33 @@ impl Display for Intrinsic {
                 }
                 expr.fmt(f)?;
                 if parenthesize {
+                    f.write_str(")")?;
+                }
+            }
+            Intrinsic::Inv(expr) => {
+                let parenthesize =
+                    !matches!(expr.node(), Node::Symbol(_) | Node::Const(_));
+
+                if parenthesize {
+                    f.write_str("(")?;
+                }
+                expr.fmt(f)?;
+                if parenthesize {
+                    f.write_str(")")?;
+                }
+
+                f.write_str(&to_superscript(-1))?;
+            }
+            Intrinsic::Log { base, arg } => {
+                if *base == e.into() {
+                    f.write_str("ln(")?;
+                    arg.fmt(f)?;
+                    f.write_str(")")?;
+                } else {
+                    f.write_str("log(")?;
+                    base.fmt(f)?;
+                    f.write_str(", ")?;
+                    arg.fmt(f)?;
                     f.write_str(")")?;
                 }
             }

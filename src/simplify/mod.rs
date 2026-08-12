@@ -1,8 +1,11 @@
+use std::mem::discriminant;
+
 use itertools::Itertools;
 
 use crate::{
     ast::{Expr, Node, intrinsic::Intrinsic},
     dimension::{Quantity, Unit},
+    symbol::Symbol,
 };
 
 /* --------------------------------- MODULES -------------------------------- */
@@ -11,13 +14,13 @@ mod algebraic;
 mod trig;
 
 #[macro_export]
-macro_rules! identity {
+macro_rules! transformation {
     ($($sym:ident),+; $from:expr => $to:expr) => {{
         $(
             let $sym = crate::symbol::Symbol::new(stringify!($sym), crate::dimension::Unit::Unitless);
         )+
 
-        Identity {
+        Transformation {
             from: crate::ast::Expr::from($from),
             to: crate::ast::Expr::from($to),
         }
@@ -32,7 +35,8 @@ pub trait Simplify {
 
 /* --------------------------------- STRUCTS -------------------------------- */
 
-pub struct Identity {
+#[derive(Clone, Copy)]
+pub struct Transformation {
     from: Expr,
     to: Expr,
 }
@@ -41,12 +45,46 @@ pub struct Identity {
 
 impl Simplify for Expr {
     fn simplify(self) -> Expr {
-        match self.node() {
-            Node::Const(_) => self,
-            Node::Symbol(_) => self,
-            Node::Intrinsic(intr) => intr.simplify(),
-            _ => todo!(),
+        let mut step = self;
+
+        loop {
+            let simplified = match step.node() {
+                Node::Const(_) => step,
+                Node::Symbol(_) => step,
+                Node::Intrinsic(intr) => intr.simplify(),
+                _ => todo!(),
+            };
+
+            let identities: Vec<Transformation> = [
+                trig::transformations().as_slice(),
+                algebraic::transformations().as_slice(),
+            ]
+            .concat();
+
+            for identity in identities {
+                let bindings = Vec::<(Symbol, Expr)>::new();
+
+                if discriminant(&simplified.node())
+                    == discriminant(&identity.from.node())
+                {
+                    match identity.from.node() {
+                        Node::Symbol(symbol) => todo!(),
+                        Node::Const(quantity) => todo!(),
+                        Node::Intrinsic(intrinsic) => todo!(),
+                        Node::ElementwiseIntrinsic(intrinsic) => todo!(),
+                        Node::Matrix { rows, cols, elements } => todo!(),
+                    }
+                }
+            }
+
+            if simplified == step {
+                break;
+            }
+
+            step = simplified;
         }
+
+        return step;
     }
 }
 
@@ -140,6 +178,8 @@ impl Simplify for Intrinsic {
     }
 }
 
+/* -------------------------------- FUNCTIONS ------------------------------- */
+
 fn fold_consts(
     mut operands: Vec<Expr>,
     init: Quantity,
@@ -155,4 +195,16 @@ fn fold_consts(
     operands.retain(|expr| !matches!(expr.node(), Node::Const(_)));
 
     (operands, folded_const)
+}
+
+type Binding = (Symbol, Expr)
+
+fn match(pattern: Expr, target: Expr, bindings: &mut Vec<Binding>) {
+    // if its a symbol, try to bind it to something on target
+    // If its a const, try to bind it to another const of equal value
+    // If its an intrinsic, match its terms
+    match pattern.node() {
+
+    }
+
 }
