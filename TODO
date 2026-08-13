@@ -3,3 +3,7 @@
 * Logarithm identities
 * Exponent identities
 * Complex numer identities
+
+
+* Canonicalization to simplify comparison operations on exprs
+* Grouping of terms on mul

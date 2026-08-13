@@ -3,7 +3,7 @@
 #![feature(const_trait_impl)]
 #![feature(const_ops)]
 #![feature(generic_atomic)]
-
+#![feature(iter_map_windows)]
 use std::ops::Mul;
 
 use num::Complex;

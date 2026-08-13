@@ -1,4 +1,4 @@
-use std::mem::discriminant;
+use std::{collections::HashMap, mem::discriminant};
 
 use itertools::Itertools;
 
@@ -11,6 +11,8 @@ use crate::{
 /* --------------------------------- MODULES -------------------------------- */
 
 mod algebraic;
+#[cfg(test)]
+mod test;
 mod trig;
 
 #[macro_export]
@@ -37,47 +39,39 @@ pub trait Simplify {
 
 #[derive(Clone, Copy)]
 pub struct Transformation {
-    from: Expr,
-    to: Expr,
+    pub from: Expr,
+    pub to: Expr,
 }
-
 /* ---------------------------------- IMPLS --------------------------------- */
 
 impl Simplify for Expr {
     fn simplify(self) -> Expr {
         let mut step = self;
+        let mut step_i = 0;
+        println!("expr {self} | step {step_i}: {self}");
 
         loop {
-            let simplified = match step.node() {
+            let mut simplified = match step.node() {
                 Node::Const(_) => step,
                 Node::Symbol(_) => step,
                 Node::Intrinsic(intr) => intr.simplify(),
                 _ => todo!(),
             };
 
-            let identities: Vec<Transformation> = [
+            let transformations: Vec<Transformation> = [
                 trig::transformations().as_slice(),
                 algebraic::transformations().as_slice(),
             ]
             .concat();
 
-            for identity in identities {
-                let bindings = Vec::<(Symbol, Expr)>::new();
+            println!("expr {self} | step {step_i}: {simplified}");
+            step_i += 1;
 
-                if discriminant(&simplified.node())
-                    == discriminant(&identity.from.node())
-                {
-                    match identity.from.node() {
-                        Node::Symbol(symbol) => todo!(),
-                        Node::Const(quantity) => todo!(),
-                        Node::Intrinsic(intrinsic) => todo!(),
-                        Node::ElementwiseIntrinsic(intrinsic) => todo!(),
-                        Node::Matrix { rows, cols, elements } => todo!(),
-                    }
-                }
+            for transformation in transformations {
+                simplified = simplified.rewrite(transformation)
             }
 
-            if simplified == step {
+            if simplified.structural_eq(step) {
                 break;
             }
 
@@ -92,7 +86,7 @@ impl Simplify for Intrinsic {
     fn simplify(self) -> Expr {
         match self {
             Intrinsic::Add(operands) => {
-                let mut simplified = operands
+                let simplified = operands
                     .into_iter()
                     .map(Expr::simplify)
                     .collect::<Vec<_>>();
@@ -172,8 +166,24 @@ impl Simplify for Intrinsic {
                     Intrinsic::Mul(folded).into()
                 }
             }
-            Intrinsic::Pow { base, exp } => self.into(),
-            _ => todo!(),
+            Intrinsic::Pow { base, exp } => {
+                Intrinsic::Pow { base: base.simplify(), exp: exp.simplify() }
+                    .into()
+            }
+            Intrinsic::Log { base, arg } => {
+                Intrinsic::Log { base: base.simplify(), arg: arg.simplify() }
+                    .into()
+            }
+            Intrinsic::Neg(expr) => Intrinsic::Neg(expr.simplify()).into(),
+            Intrinsic::Sin(expr) => Intrinsic::Sin(expr.simplify()).into(),
+            Intrinsic::Cos(expr) => Intrinsic::Cos(expr.simplify()).into(),
+            Intrinsic::Asin(expr) => Intrinsic::Asin(expr.simplify()).into(),
+            Intrinsic::Acos(expr) => Intrinsic::Acos(expr.simplify()).into(),
+            Intrinsic::Norm(expr) => Intrinsic::Norm(expr.simplify()).into(),
+            Intrinsic::Inv(expr) => Intrinsic::Inv(expr.simplify()).into(),
+            Intrinsic::Transpose(expr) => {
+                Intrinsic::Transpose(expr.simplify()).into()
+            }
         }
     }
 }
@@ -195,16 +205,4 @@ fn fold_consts(
     operands.retain(|expr| !matches!(expr.node(), Node::Const(_)));
 
     (operands, folded_const)
-}
-
-type Binding = (Symbol, Expr)
-
-fn match(pattern: Expr, target: Expr, bindings: &mut Vec<Binding>) {
-    // if its a symbol, try to bind it to something on target
-    // If its a const, try to bind it to another const of equal value
-    // If its an intrinsic, match its terms
-    match pattern.node() {
-
-    }
-
 }

@@ -3,7 +3,7 @@ use num::{complex::Complex64, pow::Pow};
 use crate::{
     ast::{
         Expr, Node,
-        intrinsic::{Intrinsic, ln},
+        intrinsic::{Intrinsic, asin, cos, ln, sin, sqrt},
     },
     simplify::Simplify,
     symbol::{Symbol, constants::e},
@@ -74,8 +74,15 @@ impl Differentiable for Intrinsic {
                     (ln(arg) / ln(base)).diff(symbol)
                 }
             }
-            _ => todo!(),
+            Intrinsic::Sin(expr) => expr.diff(symbol) * cos(expr),
+            Intrinsic::Cos(expr) => expr.diff(symbol) * -sin(expr),
+            Intrinsic::Asin(expr) => expr.diff(symbol) / sqrt(1 - expr ^ 2),
+            Intrinsic::Acos(expr) => -asin(expr).diff(symbol),
+            Intrinsic::Norm(expr) => todo!(),
+            Intrinsic::Transpose(expr) => {
+                Intrinsic::Transpose(expr.diff(symbol)).into()
+            }
         }
-        // .simplify()
+        .simplify()
     }
 }

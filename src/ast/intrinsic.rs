@@ -1,10 +1,12 @@
-use std::fmt::{Display, Pointer};
+use std::fmt::{Display, Pointer, Write};
 
+use itertools::Itertools;
 use num::pow::Pow;
 
 use crate::{
     ast::{Expr, Node},
     dimension::Unit,
+    simplify::Transformation,
     symbol::constants::{self, e},
     util::to_superscript,
 };
@@ -90,22 +92,16 @@ impl Display for Intrinsic {
                 }
             }
             Intrinsic::Mul(terms) => {
-                for (i, term) in terms.iter().enumerate() {
-                    let parenthesize = !matches!(
-                        term.node(),
+                fn joinable(expr: Expr) -> bool {
+                    matches!(
+                        expr.node(),
                         Node::Symbol(_)
                             | Node::Const(_)
                             | Node::Intrinsic(Intrinsic::Pow { .. })
-                    );
-
-                    if parenthesize {
-                        f.write_str("(")?;
-                    }
-                    term.fmt(f)?;
-                    if parenthesize {
-                        f.write_str(")")?;
-                    }
+                    )
                 }
+
+                todo!()
             }
             Intrinsic::Pow { base, exp } => {
                 let parenthesize_base =
@@ -230,6 +226,18 @@ pub fn asin(x: impl Into<Expr>) -> Expr {
 
 pub fn acos(x: impl Into<Expr>) -> Expr {
     Intrinsic::Acos(x.into()).into()
+}
+
+pub fn sqrt(x: impl Into<Expr>) -> Expr {
+    x.into() ^ (1 / 2)
+}
+
+pub fn cbrt(x: impl Into<Expr>) -> Expr {
+    x.into() ^ (1 / 3)
+}
+
+pub fn qtrt(x: impl Into<Expr>) -> Expr {
+    x.into() ^ (1 / 4)
 }
 
 // pub fn atan(expr: impl Into<Expr>) -> Expr {
