@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        intrinsic::{acos, asin, cos, sin},
+        ops::{acos, asin, cos, sin},
         *,
     },
     simplify::Transformation,

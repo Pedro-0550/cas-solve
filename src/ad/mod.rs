@@ -3,10 +3,11 @@ use num::{complex::Complex64, pow::Pow};
 use crate::{
     ast::{
         Expr, Node,
-        intrinsic::{Intrinsic, asin, cos, ln, sin, sqrt},
+        ops::{Double, Single, Variadic, asin, cos, cosh, ln, sin, sinh, sqrt},
     },
     simplify::Simplify,
     symbol::{Symbol, constants::e},
+    var::Variable,
 };
 
 /* --------------------------------- MODULES -------------------------------- */
@@ -35,54 +36,121 @@ impl Differentiable for Expr {
         match self.node() {
             Node::Const(_) => 0.into(),
             Node::Symbol(s) => if symbol == s { 1 } else { 0 }.into(),
-            Node::Intrinsic(intr) => intr.diff(symbol),
+            Node::Variadic(op) => op.diff(symbol),
+            Node::Single(op) => op.arg().diff(symbol) * op.diff(symbol),
+            Node::Double(op) => op.diff(symbol),
+
             _ => todo!(),
+        }
+        .simplify()
+    }
+}
+
+impl Differentiable for Single {
+    fn diff(&self, symbol: Symbol) -> Expr {
+        match self {
+            Single::Neg(u) => -u.diff(symbol),
+            Single::Sin(u) => cos(u),
+            Single::Cos(u) => -sin(u),
+            Single::Tan(u) => 1 / (cos(u) ^ 2),
+            Single::Asin(u) => 1 / sqrt(1 - (u ^ 2)),
+            Single::Acos(u) => -asin(u).diff(symbol),
+            Single::Atan(u) => 1 / ((u ^ 2) + 1),
+            Single::Sinh(u) => cosh(u),
+            Single::Cosh(u) => sinh(u),
+            Single::Tanh(u) => 1 / (cosh(u) ^ 2),
+            Single::Asinh(u) => 1 / sqrt((u ^ 2) + 1),
+            Single::Acosh(u) => 1 / sqrt((u ^ 2) - 1),
+            Single::Atanh(u) => 1 / (1 - (u ^ 2)),
+            Single::Transpose(u) => Single::Transpose(u.diff(symbol)).into(),
+            Single::Conj(u) => todo!(),
+            Single::Arg(u) => todo!(),
+            Single::Det(u) => todo!(),
+            Single::Norm(u) => todo!(),
         }
     }
 }
 
-impl Differentiable for Intrinsic {
+impl Differentiable for Variadic {
     fn diff(&self, symbol: Symbol) -> Expr {
         match self {
-            Intrinsic::Add(terms) => Intrinsic::Add(
+            Variadic::Add(terms) => Variadic::Add(
                 terms.iter().map(|expr| expr.diff(symbol)).collect(),
             )
             .into(),
-            Intrinsic::Mul(terms) => Intrinsic::Add(
+            Variadic::Mul(terms) => Variadic::Add(
                 terms
                     .iter()
-                    .map(|expr| {
+                    .enumerate()
+                    .map(|(i, expr)| {
                         let mut factors = Vec::with_capacity(terms.len());
                         factors.push(expr.diff(symbol));
-                        factors.extend(terms.iter().filter(|x| *x != expr));
-                        Intrinsic::Mul(factors).into()
+                        factors.extend(
+                            terms
+                                .iter()
+                                .enumerate()
+                                .filter_map(|(j, x)| (i != j).then_some(*x)),
+                        );
+                        Variadic::Mul(factors).into()
                     })
                     .collect(),
             )
             .into(),
-            Intrinsic::Inv(expr) => -expr.diff(symbol) / (expr ^ 2),
-            Intrinsic::Neg(expr) => -expr.diff(symbol),
-            Intrinsic::Pow { base, exp } => {
+        }
+    }
+}
+
+impl Differentiable for Double {
+    fn diff(&self, symbol: Symbol) -> Expr {
+        match self {
+            Double::Pow { base, exp } => {
                 (base ^ exp)
                     * (base.diff(symbol) * exp / base
                         + exp.diff(symbol) * ln(base))
             }
-            Intrinsic::Log { base, arg } => {
+            Double::Log { base, arg } => {
                 if *base == e.into() {
                     arg.diff(symbol) / arg
                 } else {
                     (ln(arg) / ln(base)).diff(symbol)
                 }
             }
-            Intrinsic::Sin(expr) => expr.diff(symbol) * cos(expr),
-            Intrinsic::Cos(expr) => expr.diff(symbol) * -sin(expr),
-            Intrinsic::Asin(expr) => expr.diff(symbol) / sqrt(1 - expr ^ 2),
-            Intrinsic::Acos(expr) => -asin(expr).diff(symbol),
-            Intrinsic::Norm(expr) => todo!(),
-            Intrinsic::Transpose(expr) => {
-                Intrinsic::Transpose(expr.diff(symbol)).into()
-            }
+            Self::Atan2 { a, b } => todo!(),
         }
-        .simplify()
     }
 }
+
+// impl Differentiable for Intrinsic {
+//     fn diff(&self, symbol: Symbol) -> Expr {
+//         match self {
+//             Intrinsic::Add(terms) => Intrinsic::Add(
+//                 terms.iter().map(|expr| expr.diff(symbol)).collect(),
+//             )
+//             .into(),
+//             Intrinsic::Mul(terms) => Intrinsic::Add(
+//                 terms
+//                     .iter()
+//                     .map(|expr| {
+//                         let mut factors = Vec::with_capacity(terms.len());
+//                         factors.push(expr.diff(symbol));
+//                         factors.extend(terms.iter().filter(|x| *x != expr));
+//                         Intrinsic::Mul(factors).into()
+//                     })
+//                     .collect(),
+//             )
+//             .into(),
+//             Intrinsic::Inv(expr) => -expr.diff(symbol) / (expr ^ 2),
+//             Intrinsic::Neg(expr) => -expr.diff(symbol),
+
+//             Intrinsic::Sin(expr) => expr.diff(symbol) * cos(expr),
+//             Intrinsic::Cos(expr) => expr.diff(symbol) * -sin(expr),
+//             Intrinsic::Asin(expr) => expr.diff(symbol) / sqrt(1 - expr ^ 2),
+//             Intrinsic::Acos(expr) => -asin(expr).diff(symbol),
+//             Intrinsic::Norm(expr) => todo!(),
+//             Intrinsic::Transpose(expr) => {
+//                 Intrinsic::Transpose(expr.diff(symbol)).into()
+//             }
+//         }
+//         .simplify()
+//     }
+// }

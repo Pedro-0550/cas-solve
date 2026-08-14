@@ -88,7 +88,7 @@ pub struct Dimension {
 ///
 /// Unit scale is always checked, so you cannot equal eV to J in an equation regardless of chosen level.
 ///
-/// Order is preserved during compositions, and different orders of the same compositions are not eq,
+/// Order is preserved during compositions, and different orders of the same compositions are not Eq,
 /// but order is ignored during checking, and only the equivalence is taken into account.
 #[derive(PartialEq, Clone, Copy, Debug)]
 #[allow(non_snake_case)]
@@ -289,15 +289,8 @@ impl Display for Unit {
             Unit::Unitless => Ok(()),
             Unit::Composed(id) => {
                 let comp = COMPOSITIONS.get_cloned(*id).unwrap();
-                let (mut num, mut denom) = (Vec::new(), Vec::new());
-
-                for (unit, exp) in comp {
-                    if exp > 0 {
-                        num.push((unit, exp));
-                    } else {
-                        denom.push((unit, exp));
-                    }
-                }
+                let (num, denom): (Vec<_>, Vec<_>) =
+                    comp.iter().partition(|(_, exp)| *exp > 0);
 
                 match (num.len(), denom.len()) {
                     (1.., ..) => {

@@ -1,16 +1,21 @@
 use std::{
+    array,
+    cmp::Ordering,
     fmt::{Display, Pointer},
     mem::discriminant,
     ops::{Add, Mul},
 };
 
+use derive_more::{From, IsVariant};
 use num::complex::Complex64;
 
 use crate::{
     Scalar,
     arena::{Arena, Handle},
-    ast::intrinsic::Intrinsic,
-    dimension::{Dimension, DimensionalAnalysisError, Quantity, Unit},
+    ast::ops::{Double, Matrix, Single, Variadic},
+    dimension::{
+        Dimension, DimensionalAnalysisError, Quantity, Unit, other::t,
+    },
     simplify::{Simplify, Transformation},
     symbol::Symbol,
 };
@@ -21,22 +26,24 @@ static NODES: Arena<Node> = Arena::new();
 
 /* --------------------------------- MODULES -------------------------------- */
 
-pub mod intrinsic;
+pub mod impls;
 pub mod ops;
 
 #[cfg(test)]
 mod test;
 /* ---------------------------------- ENUMS --------------------------------- */
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, From, IsVariant)]
 pub enum Node {
     Symbol(Symbol),
     Const(Quantity),
 
-    Intrinsic(Intrinsic),
-    ElementwiseIntrinsic(Intrinsic),
+    Variadic(Variadic),
+    Single(Single),
+    Double(Double),
 
-    Matrix { rows: usize, cols: usize, elements: Vec<Expr> },
+    #[from(ignore)]
+    Matrix(Matrix),
 }
 
 /* --------------------------------- STRUCTS -------------------------------- */
@@ -68,100 +75,92 @@ impl Expr {
         NODES.get_cloned(self.0).unwrap()
     }
 
+    /// Returns the total number of nodes in this expression
+    pub fn size(&self) -> usize {
+        match self.node() {
+            Node::Symbol(symbol) => 1,
+            Node::Const(quantity) => 1,
+            Node::Variadic(variadic) => {
+                variadic.operands_ref().iter().map(|x| x.size()).sum::<usize>()
+                    + 1
+            }
+            Node::Single(single) => single.arg().size() + 1,
+            Node::Double(double) => {
+                double.args()[0].size() + double.args()[1].size() + 1
+            }
+            Node::Matrix(matrix) => {
+                matrix.elements().iter().map(|x| x.size()).sum::<usize>() + 1
+            }
+        }
+    }
+
     /// Returns true if two expressions are structurally equivalent, such as `(a + b) * x` and `x * (b + a)`.
     /// This method does not perform simplification before comparison.
     /// Partial eq checks for strict equivalence
     pub fn structural_eq(&self, rhs: Expr) -> bool {
         match (self.node(), rhs.node()) {
-            (Node::Intrinsic(lhs), Node::Intrinsic(rhs)) => match (lhs, rhs) {
-                (Intrinsic::Add(lhs_terms), Intrinsic::Add(rhs_terms))
-                | (Intrinsic::Mul(lhs_terms), Intrinsic::Mul(rhs_terms)) => {
-                    if lhs_terms.len() != rhs_terms.len() {
-                        return false;
-                    }
-                    let mut remaining_rhs = rhs_terms;
+            (Node::Variadic(lhs), Node::Variadic(rhs)) => {
+                let lhs_terms = lhs.operands();
+                let rhs_terms = rhs.operands();
 
-                    lhs_terms.iter().all(|lhs_term| {
-                        remaining_rhs
-                            .iter()
-                            .position(|rhs_term| {
-                                lhs_term.structural_eq(*rhs_term)
-                            })
-                            .inspect(|i| _ = remaining_rhs.swap_remove(*i))
-                            .is_some()
-                    })
+                if lhs_terms.len() != rhs_terms.len() {
+                    return false;
                 }
+                let mut remaining_rhs = rhs_terms;
 
-                (Intrinsic::Acos(lhs), Intrinsic::Acos(rhs))
-                | (Intrinsic::Asin(lhs), Intrinsic::Asin(rhs))
-                | (Intrinsic::Inv(lhs), Intrinsic::Inv(rhs))
-                | (Intrinsic::Neg(lhs), Intrinsic::Neg(rhs))
-                | (Intrinsic::Sin(lhs), Intrinsic::Sin(rhs))
-                | (Intrinsic::Cos(lhs), Intrinsic::Cos(rhs))
-                | (Intrinsic::Norm(lhs), Intrinsic::Norm(rhs))
-                | (Intrinsic::Transpose(lhs), Intrinsic::Transpose(rhs)) => {
-                    lhs.structural_eq(rhs)
-                }
+                lhs_terms.iter().all(|lhs_term| {
+                    remaining_rhs
+                        .iter()
+                        .position(|rhs_term| lhs_term.structural_eq(*rhs_term))
+                        .inspect(|i| _ = remaining_rhs.swap_remove(*i))
+                        .is_some()
+                })
+            }
 
-                (
-                    Intrinsic::Log { base: lhs_base, arg: lhs_arg },
-                    Intrinsic::Log { base: rhs_base, arg: rhs_arg },
-                ) => {
-                    lhs_base.structural_eq(rhs_base)
-                        && lhs_arg.structural_eq(rhs_arg)
-                }
+            (Node::Single(lhs), Node::Single(rhs)) => {
+                lhs.arg().structural_eq(rhs.arg())
+            }
 
-                (
-                    Intrinsic::Pow { base: lhs_base, exp: lhs_exp },
-                    Intrinsic::Pow { base: rhs_base, exp: rhs_exp },
-                ) => {
-                    lhs_base.structural_eq(rhs_base)
-                        && lhs_exp.structural_eq(rhs_exp)
-                }
-                _ => false,
-            },
+            (Node::Double(lhs), Node::Double(rhs)) => {
+                lhs.args()[0].structural_eq(rhs.args()[0])
+                    && lhs.args()[1].structural_eq(rhs.args()[1])
+            }
+
             (Node::Symbol(lhs), Node::Symbol(rhs)) => lhs == rhs,
             (Node::Const(lhs), Node::Const(rhs)) => lhs == rhs,
-            (Node::ElementwiseIntrinsic(_), Node::ElementwiseIntrinsic(_)) => {
-                todo!()
+
+            (Node::Matrix(lhs), Node::Matrix(rhs)) => {
+                lhs.shape() == rhs.shape()
+                    && lhs.elements().iter().enumerate().all(|(i, lhs_el)| {
+                        lhs_el.structural_eq(rhs.elements()[i])
+                    })
             }
+
             _ => false,
         }
     }
 
     pub fn substitute(self, bindings: &[Binding]) -> Self {
         match self.node() {
-            Node::Intrinsic(intr) => match intr {
-                Intrinsic::Add(exprs) => Intrinsic::Add(
-                    exprs.iter().map(|x| x.substitute(bindings)).collect(),
+            Node::Variadic(op) => op
+                .with_operands(
+                    op.operands_ref()
+                        .iter()
+                        .map(|x| x.substitute(bindings))
+                        .collect(),
                 )
                 .into(),
 
-                Intrinsic::Mul(exprs) => Intrinsic::Mul(
-                    exprs.iter().map(|x| x.substitute(bindings)).collect(),
-                )
+            Node::Single(op) => {
+                op.with_arg(op.arg().substitute(bindings)).into()
+            }
+
+            Node::Double(op) => op
+                .with_args(array::from_fn(|i| {
+                    op.args()[i].substitute(bindings)
+                }))
                 .into(),
 
-                Intrinsic::Acos(expr)
-                | Intrinsic::Asin(expr)
-                | Intrinsic::Inv(expr)
-                | Intrinsic::Neg(expr)
-                | Intrinsic::Sin(expr)
-                | Intrinsic::Cos(expr)
-                | Intrinsic::Norm(expr)
-                | Intrinsic::Transpose(expr) => expr.substitute(bindings),
-
-                Intrinsic::Log { base, arg } => Intrinsic::Log {
-                    base: base.substitute(bindings),
-                    arg: arg.substitute(bindings),
-                }
-                .into(),
-                Intrinsic::Pow { base, exp } => Intrinsic::Pow {
-                    base: base.substitute(bindings),
-                    exp: exp.substitute(bindings),
-                }
-                .into(),
-            },
             Node::Symbol(sym) => {
                 if let Some(binding) = bindings.iter().find(|b| b.from == sym) {
                     binding.to
@@ -169,13 +168,21 @@ impl Expr {
                     self
                 }
             }
+
+            Node::Matrix(m) => {
+                Node::Matrix(m.map(|el| el.substitute(bindings))).into()
+            }
+
             _ => self,
-            // TODO: elementwise
         }
     }
 
     /// Rewrites this expression by trying to apply a transformation. If the transformation pattern does not match, does nothing.
-    pub fn rewrite(self, transformation: Transformation) -> Self {
+    pub fn rewrite(
+        self,
+        transformation: Transformation,
+        recursive: bool,
+    ) -> Self {
         let mut bindings = Vec::new();
 
         fn replace_terms(
@@ -198,80 +205,39 @@ impl Expr {
         match self.match_by(transformation.from, &mut bindings) {
             Some(Match::Whole) => transformation.to.substitute(&bindings),
             Some(Match::Terms(indices)) => {
-                match self.node().as_intrinsic().unwrap() {
-                    Intrinsic::Mul(terms) => Intrinsic::Mul(replace_terms(
-                        transformation,
-                        &bindings,
-                        &terms,
-                        &indices,
-                    ))
-                    .into(),
-                    Intrinsic::Add(terms) => Intrinsic::Add(replace_terms(
-                        transformation,
-                        &bindings,
-                        &terms,
-                        &indices,
-                    ))
-                    .into(),
-                    _ => unreachable!(),
-                }
+                let Node::Variadic(op) = self.node() else {
+                    unreachable!();
+                };
+
+                op.with_operands(replace_terms(
+                    transformation,
+                    &bindings,
+                    &op.operands_ref(),
+                    &indices,
+                ))
+                .into()
             }
-            None => match self.node() {
+            None if recursive => match self.node() {
                 Node::Symbol(_) | Node::Const(_) => self,
-                Node::Intrinsic(intrinsic) => match intrinsic {
-                    Intrinsic::Add(exprs) => Intrinsic::Add(
-                        exprs
+                Node::Variadic(op) => op
+                    .with_operands(
+                        op.operands_ref()
                             .iter()
-                            .map(|x| x.rewrite(transformation))
+                            .map(|x| x.rewrite(transformation, recursive))
                             .collect(),
                     )
                     .into(),
-                    Intrinsic::Mul(exprs) => Intrinsic::Mul(
-                        exprs
-                            .iter()
-                            .map(|x| x.rewrite(transformation))
-                            .collect(),
-                    )
+                Node::Single(op) => op
+                    .with_arg(op.arg().rewrite(transformation, recursive))
                     .into(),
-                    Intrinsic::Neg(expr) => {
-                        Intrinsic::Neg(expr.rewrite(transformation)).into()
-                    }
-                    Intrinsic::Sin(expr) => {
-                        Intrinsic::Sin(expr.rewrite(transformation)).into()
-                    }
-                    Intrinsic::Cos(expr) => {
-                        Intrinsic::Cos(expr.rewrite(transformation)).into()
-                    }
-                    Intrinsic::Asin(expr) => {
-                        Intrinsic::Asin(expr.rewrite(transformation)).into()
-                    }
-                    Intrinsic::Acos(expr) => {
-                        Intrinsic::Acos(expr.rewrite(transformation)).into()
-                    }
-                    Intrinsic::Pow { base, exp } => Intrinsic::Pow {
-                        base: base.rewrite(transformation),
-                        exp: exp.rewrite(transformation),
-                    }
+                Node::Double(op) => op
+                    .with_args(array::from_fn(|i| {
+                        op.args()[i].rewrite(transformation, recursive)
+                    }))
                     .into(),
-                    Intrinsic::Log { base, arg } => Intrinsic::Log {
-                        base: base.rewrite(transformation),
-                        arg: arg.rewrite(transformation),
-                    }
-                    .into(),
-                    Intrinsic::Norm(expr) => {
-                        Intrinsic::Norm(expr.rewrite(transformation)).into()
-                    }
-                    Intrinsic::Inv(expr) => {
-                        Intrinsic::Inv(expr.rewrite(transformation)).into()
-                    }
-                    Intrinsic::Transpose(expr) => {
-                        Intrinsic::Transpose(expr.rewrite(transformation))
-                            .into()
-                    }
-                },
-                Node::ElementwiseIntrinsic(intrinsic) => todo!(),
-                Node::Matrix { rows, cols, elements } => todo!(),
+                Node::Matrix(m) => todo!(),
             },
+            _ => self,
         }
     }
 
@@ -287,8 +253,9 @@ impl Expr {
         pattern: Expr,
         bindings: &mut Vec<Binding>,
     ) -> Option<Match> {
-        match pattern.node() {
-            Node::Symbol(symb) => {
+        // TODO: impl greedy matching, matching x * 1 against y * a * b * g * 1 should match x -> y * a * b * g and 1 -> 1
+        match (pattern.node(), self.node()) {
+            (Node::Symbol(symb), _) => {
                 for binding in &*bindings {
                     if binding.from == symb {
                         return binding
@@ -301,130 +268,102 @@ impl Expr {
                 bindings.push(Binding { from: symb, to: self });
                 Some(Match::Whole)
             }
-            Node::Const(qty)
-                if let Node::Const(target_qty) = self.node()
-                    && qty.value() == target_qty.value() =>
-            {
-                Some(Match::Whole)
+            (Node::Const(pat_qty), Node::Const(target_qty)) => {
+                (pat_qty.value() == target_qty.value()).then_some(Match::Whole)
             }
-            Node::Intrinsic(pat_intr)
-                if let Node::Intrinsic(target_intr) = self.node() =>
+            // TODO: handle non commutability of the matrix
+            (Node::Variadic(pat_op), Node::Variadic(target_op))
+                if discriminant(&pat_op) == discriminant(&target_op) =>
             {
-                match (pat_intr, target_intr) {
-                    // This is a variation of bipartite graph matching problem and theres various algorithms to use.
-                    // The thing is that assigning for example "x" to be "y + 10", means that every other occurance of
-                    // "y + 10" must be x as well.
-                    // Since n is very small I chose backtracking which is simple
-                    //
-                    //
-                    // Did i mention i hate tree algorithms btw, its because thats why
-                    (
-                        Intrinsic::Add(pat_exprs),
-                        Intrinsic::Add(target_exprs),
-                    )
-                    | (
-                        Intrinsic::Mul(pat_exprs),
-                        Intrinsic::Mul(target_exprs),
-                    ) => {
-                        let initial_len = bindings.len();
-                        let mut tries = vec![
-                            vec![false; target_exprs.len()];
-                            pat_exprs.len()
-                        ];
-                        let mut matched = vec![false; target_exprs.len()];
-                        let mut pat_i = 0;
-                        // (binding length before ops, matched_i) @ step
-                        let mut step = Vec::new();
+                // This is a variation of bipartite graph matching problem and theres various algorithms to use.
+                // The thing is that assigning for example "x" to be "y + 10", means that every other occurance of
+                // "y + 10" must be x as well.
+                // Since n is very small I chose backtracking which is simple
+                //
+                //
+                // Did i mention i hate tree algorithms btw, its because thats why
 
-                        loop {
-                            let pat_expr = pat_exprs[pat_i];
+                let pat_exprs = pat_op.operands_ref();
+                let target_exprs = target_op.operands_ref();
 
-                            let Some(target_i) = matched
-                                .iter()
-                                .enumerate()
-                                .position(|(i, m)| !*m && !tries[pat_i][i])
-                            else {
-                                if pat_i == 0 {
-                                    break;
-                                }
-                                let (last_start_len, last_match) =
-                                    step.pop().unwrap();
-                                bindings.truncate(last_start_len);
+                let initial_len = bindings.len();
+                let mut tries =
+                    vec![vec![false; target_exprs.len()]; pat_exprs.len()];
+                let mut matched = vec![false; target_exprs.len()];
+                let mut pat_i = 0;
+                // (binding length before ops, matched_i) @ step
+                let mut step = Vec::new();
 
-                                tries[pat_i].fill(false);
+                loop {
+                    let pat_expr = pat_exprs[pat_i];
 
-                                *matched.get_mut(last_match).unwrap() = false;
-                                pat_i -= 1;
-                                continue;
-                            };
-
-                            let target_expr = target_exprs[target_i];
-                            *tries
-                                .get_mut(pat_i)
-                                .unwrap()
-                                .get_mut(target_i)
-                                .unwrap() = true;
-
-                            let before_len = bindings.len();
-                            if let Some(_) =
-                                target_expr.match_by(pat_expr, bindings)
-                            {
-                                pat_i += 1;
-                                *matched.get_mut(target_i).unwrap() = true;
-                                step.push((before_len, target_i));
-                            } else {
-                                bindings.truncate(before_len);
-                            }
-
-                            if pat_i == pat_exprs.len() {
-                                break;
-                            }
+                    let Some(target_i) = matched
+                        .iter()
+                        .enumerate()
+                        .position(|(i, m)| !*m && !tries[pat_i][i])
+                    else {
+                        if pat_i == 0 {
+                            break;
                         }
+                        let (last_start_len, last_match) = step.pop().unwrap();
+                        bindings.truncate(last_start_len);
 
-                        let success = pat_i == pat_exprs.len();
-                        if !success {
-                            bindings.truncate(initial_len);
-                            return None;
-                        }
+                        *matched.get_mut(last_match).unwrap() = false;
 
-                        Some(Match::Terms(
-                            matched
-                                .iter()
-                                .enumerate()
-                                .filter_map(|(i, matched)| matched.then_some(i))
-                                .collect(),
-                        ))
+                        tries[pat_i].fill(false);
+                        pat_i -= 1;
+                        tries[pat_i][last_match] = true;
+
+                        continue;
+                    };
+
+                    let target_expr = target_exprs[target_i];
+                    *tries.get_mut(pat_i).unwrap().get_mut(target_i).unwrap() =
+                        true;
+
+                    let before_len = bindings.len();
+                    if let Some(_) = target_expr.match_by(pat_expr, bindings) {
+                        pat_i += 1;
+                        *matched.get_mut(target_i).unwrap() = true;
+                        step.push((before_len, target_i));
+                    } else {
+                        bindings.truncate(before_len);
                     }
-                    (
-                        Intrinsic::Pow { base: pat_base, exp: pat_exp },
-                        Intrinsic::Pow { base: target_base, exp: target_exp },
-                    ) => target_base
-                        .match_by(pat_base, bindings)
-                        .and(target_exp.match_by(pat_exp, bindings)),
-                    (
-                        Intrinsic::Acos(pat_expr),
-                        Intrinsic::Acos(target_expr),
-                    )
-                    | (
-                        Intrinsic::Asin(pat_expr),
-                        Intrinsic::Asin(target_expr),
-                    )
-                    | (Intrinsic::Inv(pat_expr), Intrinsic::Inv(target_expr))
-                    | (Intrinsic::Neg(pat_expr), Intrinsic::Neg(target_expr))
-                    | (Intrinsic::Sin(pat_expr), Intrinsic::Sin(target_expr))
-                    | (Intrinsic::Cos(pat_expr), Intrinsic::Cos(target_expr))
-                    | (
-                        Intrinsic::Norm(pat_expr),
-                        Intrinsic::Norm(target_expr),
-                    )
-                    | (
-                        Intrinsic::Transpose(pat_expr),
-                        Intrinsic::Transpose(target_expr),
-                    ) => target_expr.match_by(pat_expr, bindings),
 
-                    _ => None,
+                    if pat_i == pat_exprs.len() {
+                        break;
+                    }
                 }
+
+                let success = pat_i == pat_exprs.len();
+                if !success {
+                    bindings.truncate(initial_len);
+                    return None;
+                }
+
+                Some(Match::Terms(
+                    matched
+                        .iter()
+                        .enumerate()
+                        .filter_map(|(i, matched)| matched.then_some(i))
+                        .collect(),
+                ))
             }
+
+            (Node::Double(pat_ops), Node::Double(target_ops))
+                if discriminant(&pat_ops) == discriminant(&target_ops) =>
+            {
+                target_ops.args()[0].match_by(pat_ops.args()[0], bindings).and(
+                    target_ops.args()[1].match_by(pat_ops.args()[1], bindings),
+                )
+            }
+            (Node::Single(pat_op), Node::Single(target_op))
+                if discriminant(&pat_op) == discriminant(&target_op) =>
+            {
+                target_op.arg().match_by(pat_op.arg(), bindings)
+            }
+            (Node::Matrix(pat), Node::Matrix(target)) => todo!(),
+
             _ => None,
         }
     }
@@ -439,71 +378,41 @@ impl Node {
         let id = NODES.insert(self);
         Expr(id)
     }
-
-    /// Returns `true` if the expr is [`Symbol`].
-    ///
-    /// [`Symbol`]: Expr::Symbol
-    #[must_use]
-    pub fn is_symbol(&self) -> bool {
-        matches!(self, Node::Symbol(..))
-    }
-
-    pub fn as_symbol(&self) -> Option<&Symbol> {
-        if let Self::Symbol(v) = self { Some(v) } else { None }
-    }
-
-    /// Returns `true` if the expr is [`Const`].
-    ///
-    /// [`Const`]: Expr::Const
-    #[must_use]
-    pub fn is_const(&self) -> bool {
-        matches!(self, Self::Const(..))
-    }
-
-    pub fn as_const(&self) -> Option<&Quantity> {
-        if let Self::Const(v) = self { Some(v) } else { None }
-    }
-
-    /// Returns `true` if the expr is [`Intrinsic`].
-    ///
-    /// [`Intrinsic`]: Expr::Intrinsic
-    #[must_use]
-    pub fn is_intrinsic(&self) -> bool {
-        matches!(self, Self::Intrinsic(..))
-    }
-
-    pub fn as_intrinsic(&self) -> Option<&Intrinsic> {
-        if let Self::Intrinsic(v) = self { Some(v) } else { None }
-    }
-
-    /// Returns `true` if the expr is [`ElementwiseIntrinsic`].
-    ///
-    /// [`ElementwiseIntrinsic`]: Expr::ElementwiseIntrinsic
-    #[must_use]
-    pub fn is_elementwise_intrinsic(&self) -> bool {
-        matches!(self, Self::ElementwiseIntrinsic(..))
-    }
-
-    pub fn as_elementwise_intrinsic(&self) -> Option<&Intrinsic> {
-        if let Self::ElementwiseIntrinsic(v) = self { Some(v) } else { None }
-    }
-
-    /// Returns `true` if the expr is [`Matrix`].
-    ///
-    /// [`Matrix`]: Expr::Matrix
-    #[must_use]
-    pub fn is_matrix(&self) -> bool {
-        matches!(self, Self::Matrix { .. })
-    }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.node() {
             Node::Const(qty) => qty.fmt(f),
-            Node::Intrinsic(intr) => intr.fmt(f),
+            Node::Double(op) => op.fmt(f),
+            Node::Single(op) => op.fmt(f),
+            Node::Variadic(op) => op.fmt(f),
             Node::Symbol(symb) => symb.fmt(f),
-            _ => todo!(),
+            Node::Matrix(m) => todo!(),
         }
     }
 }
+
+// impl PartialOrd for Expr {
+//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
+//         Some(self.cmp(other))
+//     }
+// }
+
+// impl Ord for Expr {
+//     fn cmp(&self, other: &Self) -> Ordering {
+//         match (self.node(), other.node()) {
+//             (Node::Symbol(lhs), Node::Symbol(rhs)) => {
+//                 lhs.name().cmp(&rhs.name())
+//             }
+//             (Node::Const(lhs), Node::Const(rhs)) => {
+//                 let lhs = lhs.value();
+//                 let rhs = rhs.value();
+//                 lhs.re
+//                     .total_cmp(&rhs.re)
+//                     .then_with(|| lhs.im.total_cmp(&rhs.im))
+//             }
+//             (Node::Intrinsic(lhs), Node::Intrinsic(rhs)) => match (lhs, rhs) {},
+//         }
+//     }
+// }

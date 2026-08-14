@@ -1,6 +1,6 @@
 use crate::{
-    ad::Differentiable, ast::intrinsic::log, dimension::Unit,
-    simplify::Simplify, symbol::Symbol,
+    ad::Differentiable, ast::ops::log, dimension::Unit, simplify::Simplify,
+    symbol::Symbol,
 };
 
 #[test]

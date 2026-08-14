@@ -3,6 +3,7 @@ use std::{
     ops::*,
 };
 
+use float_eq::float_eq;
 use num::{
     Complex, Float, Integer, Zero,
     complex::{Complex32, Complex64},
@@ -11,12 +12,29 @@ use num::{
 
 use crate::{impl_assign_op, impl_binary_op};
 
+const EQ_ABS_TOL: f64 = 1e-15;
+
 /* --------------------------------- STRUCTS -------------------------------- */
 
 #[derive(PartialEq, Clone, Copy, Debug)]
 pub struct Scalar(Complex<f64>);
 
 /* ---------------------------------- IMPLS --------------------------------- */
+
+impl Scalar {
+    pub fn is_integer(self) -> bool {
+        float_eq!(self.im, 0.0, abs <= EQ_ABS_TOL)
+            && float_eq!(self.re, self.re.round(), abs <= EQ_ABS_TOL)
+    }
+
+    pub fn is_real(self) -> bool {
+        float_eq!(self.im, 0.0, abs <= EQ_ABS_TOL)
+    }
+
+    pub fn is_imaginary(self) -> bool {
+        self.im.abs() > 0.0 && float_eq!(self.re, 0.0, abs <= EQ_ABS_TOL)
+    }
+}
 
 macro_rules! impl_scalar_from_real {
     ($($t:ty),*) => {
