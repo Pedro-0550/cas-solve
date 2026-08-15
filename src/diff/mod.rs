@@ -33,7 +33,7 @@ pub trait Differentiable {
 
 impl Differentiable for Expr {
     fn diff(&self, symbol: Symbol) -> Expr {
-        match self.node() {
+        match self.simplify().node() {
             Node::Const(_) => 0.into(),
             Node::Symbol(s) => if symbol == s { 1 } else { 0 }.into(),
             Node::Variadic(op) => op.diff(symbol),
@@ -42,19 +42,18 @@ impl Differentiable for Expr {
 
             _ => todo!(),
         }
-        .simplify()
     }
 }
 
 impl Differentiable for Single {
     fn diff(&self, symbol: Symbol) -> Expr {
         match self {
-            Single::Neg(u) => -u.diff(symbol),
+            Single::Neg(u) => (-1.0).into(),
             Single::Sin(u) => cos(u),
             Single::Cos(u) => -sin(u),
             Single::Tan(u) => 1 / (cos(u) ^ 2),
             Single::Asin(u) => 1 / sqrt(1 - (u ^ 2)),
-            Single::Acos(u) => -asin(u).diff(symbol),
+            Single::Acos(u) => -1 / sqrt(1 - (u ^ 2)),
             Single::Atan(u) => 1 / ((u ^ 2) + 1),
             Single::Sinh(u) => cosh(u),
             Single::Cosh(u) => sinh(u),
@@ -111,8 +110,12 @@ impl Differentiable for Double {
             Double::Log { base, arg } => {
                 if *base == e.into() {
                     arg.diff(symbol) / arg
+                } else if base.diff(symbol) == 0.into() {
+                    arg.diff(symbol) / (arg * ln(base))
                 } else {
-                    (ln(arg) / ln(base)).diff(symbol)
+                    ((arg.diff(symbol) / arg) * ln(base)
+                        - (base.diff(symbol) / base) * ln(arg))
+                        / (ln(base) ^ 2)
                 }
             }
             Self::Atan2 { a, b } => todo!(),

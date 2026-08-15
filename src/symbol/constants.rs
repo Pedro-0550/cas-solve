@@ -56,6 +56,7 @@ macro_rules! constants {
             crate::symbol::SymbolInfo {
                 name: stringify!($name).to_owned(),
                 unit: ($value).unit(),
+                range: crate::simplify::Range::NON_ZERO
             },
         );
 

@@ -402,6 +402,16 @@ impl Display for Variadic {
                     let parenthesize =
                         matches!(term.node(), Node::Variadic(Variadic::Add(_)));
 
+                    if i > 0
+                        && num
+                            .get(i - 1)
+                            .map(|x| !joinable(x))
+                            .unwrap_or_default()
+                        && joinable(term)
+                    {
+                        f.write_char('·')?;
+                    }
+
                     write_enclosed(term, f, parenthesize)?;
 
                     if num.get(i + 1).map(|x| !joinable(x)).unwrap_or_default()
@@ -414,6 +424,16 @@ impl Display for Variadic {
 
                 if !num.is_empty() && !denom.is_empty() {
                     f.write_str(" / ")?;
+                }
+
+                let parenthesize_denom = denom.len() > 1
+                    || denom
+                        .first()
+                        .map(|x| x.node().is_variadic())
+                        .unwrap_or_default();
+
+                if parenthesize_denom {
+                    f.write_char('(')?;
                 }
 
                 for (i, mut term) in denom.clone().into_iter().enumerate() {
@@ -460,6 +480,10 @@ impl Display for Variadic {
                     {
                         f.write_char('·')?;
                     }
+                }
+
+                if parenthesize_denom {
+                    f.write_char(')')?;
                 }
             }
             // Intrinsic::Pow { base, exp } => {

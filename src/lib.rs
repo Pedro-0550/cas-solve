@@ -8,13 +8,15 @@ use std::ops::Mul;
 
 use num::Complex;
 
-mod ad;
 mod arena;
 mod ast;
+mod diff;
 mod dimension;
 mod eq;
 mod macros;
+mod normal;
 mod scalar;
+mod set;
 mod simplify;
 mod symbol;
 mod util;

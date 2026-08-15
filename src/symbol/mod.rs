@@ -11,11 +11,14 @@ use std::{
     },
 };
 
+use phf::PhfHash;
+
 use crate::{
     Complex,
     arena::{Arena, Handle},
     ast::Expr,
     dimension::{Dimension, Unit},
+    simplify::Range,
 };
 
 /* --------------------------------- MODULES -------------------------------- */
@@ -38,15 +41,16 @@ static CONSTANTS_REGISTERED: AtomicBool = AtomicBool::new(false);
 pub struct SymbolInfo {
     name: String,
     unit: Unit,
+    range: Range,
 }
 
 #[derive(PartialEq, Clone, Debug, Copy, Hash, Eq)]
-pub struct Symbol(Handle<SymbolInfo>);
+pub struct Symbol(pub(crate) Handle<SymbolInfo>);
 
 /* ---------------------------------- IMPLS --------------------------------- */
 
 impl Symbol {
-    pub fn new(name: &str, unit: Unit) -> Self {
+    pub fn new(name: &str) -> Self {
         if !CONSTANTS_REGISTERED.load(Ordering::SeqCst) {
             constants::register();
             CONSTANTS_REGISTERED.store(true, Ordering::SeqCst);
@@ -56,9 +60,23 @@ impl Symbol {
             return Symbol(id);
         }
 
-        let handle = SYMBOLS.insert(SymbolInfo { name: name.to_owned(), unit });
+        let handle = SYMBOLS.insert(SymbolInfo {
+            name: name.to_owned(),
+            unit: Unit::Unitless,
+            range: Range::UNBOUNDED,
+        });
 
         Symbol(handle)
+    }
+
+    pub fn set_unit(self, unit: Unit) -> Self {
+        SYMBOLS.modify(self.0, |i| i.unit = unit);
+        self
+    }
+
+    pub fn set_range(self, range: Range) -> Self {
+        SYMBOLS.modify(self.0, |i| i.range = range);
+        self
     }
 
     pub fn name(&self) -> String {
@@ -68,11 +86,21 @@ impl Symbol {
     pub fn unit(&self) -> Unit {
         SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").unit
     }
+
+    pub fn range(&self) -> Range {
+        SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").range
+    }
 }
 
 impl Display for Symbol {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str(&self.name())
+    }
+}
+
+impl PhfHash for Symbol {
+    fn phf_hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        self.0.0.phf_hash(state);
     }
 }
 

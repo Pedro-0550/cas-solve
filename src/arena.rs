@@ -16,7 +16,7 @@ pub struct Arena<T> {
     next_id: AtomicUsize,
 }
 
-pub struct Handle<T>(usize, PhantomData<T>);
+pub struct Handle<T>(pub(crate) usize, PhantomData<T>);
 
 // TODO: register the constants somehow
 
@@ -51,6 +51,10 @@ where
 
     pub fn get_cloned(&self, id: Handle<T>) -> Option<T> {
         self.map.read().unwrap().get(&id).cloned()
+    }
+
+    pub fn modify(&self, id: Handle<T>, f: impl FnOnce(&mut T) -> ()) {
+        self.map.write().unwrap().get_mut(&id).map(f);
     }
 
     pub fn find(

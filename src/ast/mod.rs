@@ -7,6 +7,7 @@ use std::{
 };
 
 use derive_more::{From, IsVariant};
+use itertools::Itertools;
 use num::complex::Complex64;
 
 use crate::{
@@ -16,7 +17,8 @@ use crate::{
     dimension::{
         Dimension, DimensionalAnalysisError, Quantity, Unit, other::t,
     },
-    simplify::{Simplify, Transformation},
+    normal::Normalize,
+    simplify::{PatternDomain, Simplify, Transformation},
     symbol::Symbol,
 };
 
@@ -59,7 +61,7 @@ pub struct Binding {
 
 pub enum Match {
     Whole,
-    Terms(Vec<usize>),
+    Terms(Vec<(usize, usize)>),
 }
 
 // #[derive(Clone, PartialEq, Eq)]
@@ -94,50 +96,10 @@ impl Expr {
         }
     }
 
-    /// Returns true if two expressions are structurally equivalent, such as `(a + b) * x` and `x * (b + a)`.
+    /// Returns true if two expressions's normalized forms are equal, such as `(a + b) * x` and `x * (b + a)`.
     /// This method does not perform simplification before comparison.
-    /// Partial eq checks for strict equivalence
     pub fn structural_eq(&self, rhs: Expr) -> bool {
-        match (self.node(), rhs.node()) {
-            (Node::Variadic(lhs), Node::Variadic(rhs)) => {
-                let lhs_terms = lhs.operands();
-                let rhs_terms = rhs.operands();
-
-                if lhs_terms.len() != rhs_terms.len() {
-                    return false;
-                }
-                let mut remaining_rhs = rhs_terms;
-
-                lhs_terms.iter().all(|lhs_term| {
-                    remaining_rhs
-                        .iter()
-                        .position(|rhs_term| lhs_term.structural_eq(*rhs_term))
-                        .inspect(|i| _ = remaining_rhs.swap_remove(*i))
-                        .is_some()
-                })
-            }
-
-            (Node::Single(lhs), Node::Single(rhs)) => {
-                lhs.arg().structural_eq(rhs.arg())
-            }
-
-            (Node::Double(lhs), Node::Double(rhs)) => {
-                lhs.args()[0].structural_eq(rhs.args()[0])
-                    && lhs.args()[1].structural_eq(rhs.args()[1])
-            }
-
-            (Node::Symbol(lhs), Node::Symbol(rhs)) => lhs == rhs,
-            (Node::Const(lhs), Node::Const(rhs)) => lhs == rhs,
-
-            (Node::Matrix(lhs), Node::Matrix(rhs)) => {
-                lhs.shape() == rhs.shape()
-                    && lhs.elements().iter().enumerate().all(|(i, lhs_el)| {
-                        lhs_el.structural_eq(rhs.elements()[i])
-                    })
-            }
-
-            _ => false,
-        }
+        self.normalize() == rhs.normalize()
     }
 
     pub fn substitute(self, bindings: &[Binding]) -> Self {
@@ -202,9 +164,13 @@ impl Expr {
             new_terms
         }
 
-        match self.match_by(transformation.from, &mut bindings) {
+        match self.match_by(
+            transformation.from,
+            &mut bindings,
+            transformation.domain,
+        ) {
             Some(Match::Whole) => transformation.to.substitute(&bindings),
-            Some(Match::Terms(indices)) => {
+            Some(Match::Terms(matches)) => {
                 let Node::Variadic(op) = self.node() else {
                     unreachable!();
                 };
@@ -213,7 +179,11 @@ impl Expr {
                     transformation,
                     &bindings,
                     &op.operands_ref(),
-                    &indices,
+                    matches
+                        .iter()
+                        .map(|(_, t_idx)| *t_idx)
+                        .collect::<Vec<_>>()
+                        .as_slice(),
                 ))
                 .into()
             }
@@ -223,16 +193,20 @@ impl Expr {
                     .with_operands(
                         op.operands_ref()
                             .iter()
-                            .map(|x| x.rewrite(transformation, recursive))
+                            .map(|x| {
+                                x.rewrite(transformation.clone(), recursive)
+                            })
                             .collect(),
                     )
                     .into(),
                 Node::Single(op) => op
-                    .with_arg(op.arg().rewrite(transformation, recursive))
+                    .with_arg(
+                        op.arg().rewrite(transformation.clone(), recursive),
+                    )
                     .into(),
                 Node::Double(op) => op
                     .with_args(array::from_fn(|i| {
-                        op.args()[i].rewrite(transformation, recursive)
+                        op.args()[i].rewrite(transformation.clone(), recursive)
                     }))
                     .into(),
                 Node::Matrix(m) => todo!(),
@@ -252,6 +226,7 @@ impl Expr {
         self,
         pattern: Expr,
         bindings: &mut Vec<Binding>,
+        domain: PatternDomain,
     ) -> Option<Match> {
         // TODO: impl greedy matching, matching x * 1 against y * a * b * g * 1 should match x -> y * a * b * g and 1 -> 1
         match (pattern.node(), self.node()) {
@@ -265,8 +240,12 @@ impl Expr {
                     }
                 }
 
-                bindings.push(Binding { from: symb, to: self });
-                Some(Match::Whole)
+                if self.range().is_subset(domain(symb)) {
+                    bindings.push(Binding { from: symb, to: self });
+                    Some(Match::Whole)
+                } else {
+                    None
+                }
             }
             (Node::Const(pat_qty), Node::Const(target_qty)) => {
                 (pat_qty.value() == target_qty.value()).then_some(Match::Whole)
@@ -283,84 +262,82 @@ impl Expr {
                 //
                 // Did i mention i hate tree algorithms btw, its because thats why
 
-                let pat_exprs = pat_op.operands_ref();
-                let target_exprs = target_op.operands_ref();
+                fn backtrack(
+                    pat: &[Expr],
+                    target: &[Expr],
+                    bindings: &mut Vec<Binding>,
+                    domain: PatternDomain,
+                    matches: &mut Vec<(usize, usize)>,
+                    pat_idx: usize,
+                ) -> bool {
+                    if pat_idx == pat.len() {
+                        return true;
+                    }
 
-                let initial_len = bindings.len();
-                let mut tries =
-                    vec![vec![false; target_exprs.len()]; pat_exprs.len()];
-                let mut matched = vec![false; target_exprs.len()];
-                let mut pat_i = 0;
-                // (binding length before ops, matched_i) @ step
-                let mut step = Vec::new();
-
-                loop {
-                    let pat_expr = pat_exprs[pat_i];
-
-                    let Some(target_i) = matched
-                        .iter()
-                        .enumerate()
-                        .position(|(i, m)| !*m && !tries[pat_i][i])
-                    else {
-                        if pat_i == 0 {
-                            break;
+                    for target_idx in 0..target.len() {
+                        if matches.iter().any(|&(_, i)| i == target_idx) {
+                            continue;
                         }
-                        let (last_start_len, last_match) = step.pop().unwrap();
-                        bindings.truncate(last_start_len);
 
-                        *matched.get_mut(last_match).unwrap() = false;
+                        let bindings_sp = bindings.len();
+                        let matches_sp = matches.len();
 
-                        tries[pat_i].fill(false);
-                        pat_i -= 1;
-                        tries[pat_i][last_match] = true;
+                        if target[target_idx]
+                            .match_by(pat[pat_idx], bindings, domain)
+                            .is_some()
+                        {
+                            matches.push((pat_idx, target_idx));
 
-                        continue;
-                    };
+                            if backtrack(
+                                pat,
+                                target,
+                                bindings,
+                                domain,
+                                matches,
+                                pat_idx + 1,
+                            ) {
+                                return true;
+                            }
+                        }
 
-                    let target_expr = target_exprs[target_i];
-                    *tries.get_mut(pat_i).unwrap().get_mut(target_i).unwrap() =
-                        true;
-
-                    let before_len = bindings.len();
-                    if let Some(_) = target_expr.match_by(pat_expr, bindings) {
-                        pat_i += 1;
-                        *matched.get_mut(target_i).unwrap() = true;
-                        step.push((before_len, target_i));
-                    } else {
-                        bindings.truncate(before_len);
+                        bindings.truncate(bindings_sp);
+                        matches.truncate(matches_sp);
                     }
 
-                    if pat_i == pat_exprs.len() {
-                        break;
-                    }
+                    false
                 }
 
-                let success = pat_i == pat_exprs.len();
-                if !success {
-                    bindings.truncate(initial_len);
-                    return None;
-                }
+                let mut matches = Vec::new();
 
-                Some(Match::Terms(
-                    matched
-                        .iter()
-                        .enumerate()
-                        .filter_map(|(i, matched)| matched.then_some(i))
-                        .collect(),
-                ))
+                if backtrack(
+                    pat_op.operands_ref(),
+                    target_op.operands_ref(),
+                    bindings,
+                    domain,
+                    &mut matches,
+                    0,
+                ) {
+                    Some(Match::Terms(matches))
+                } else {
+                    None
+                }
             }
 
             (Node::Double(pat_ops), Node::Double(target_ops))
                 if discriminant(&pat_ops) == discriminant(&target_ops) =>
             {
-                target_ops.args()[0].match_by(pat_ops.args()[0], bindings).and(
-                    target_ops.args()[1].match_by(pat_ops.args()[1], bindings),
-                )
+                target_ops.args()[0]
+                    .match_by(pat_ops.args()[0], bindings, domain)
+                    .and(target_ops.args()[1].match_by(
+                        pat_ops.args()[1],
+                        bindings,
+                        domain,
+                    ))
             }
             (Node::Single(pat_op), Node::Single(target_op))
                 if discriminant(&pat_op) == discriminant(&target_op) =>
             {
-                target_op.arg().match_by(pat_op.arg(), bindings)
+                target_op.arg().match_by(pat_op.arg(), bindings, domain)
             }
             (Node::Matrix(pat), Node::Matrix(target)) => todo!(),
 

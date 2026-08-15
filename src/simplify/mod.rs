@@ -3,9 +3,12 @@ use std::{
     collections::{HashMap, HashSet},
     mem::discriminant,
     path,
+    rc::Rc,
 };
 
 use itertools::Itertools;
+use num::Num;
+use phf::Map;
 
 use crate::{
     Scalar,
@@ -19,7 +22,7 @@ use crate::{
 
 /* -------------------------------- CONSTANTS ------------------------------- */
 
-const BEAM_WIDTH: usize = 64;
+const BEAM_WIDTH: usize = 128;
 const MAX_DEPTH: usize = 8000;
 
 /* --------------------------------- MODULES -------------------------------- */
@@ -30,6 +33,12 @@ mod test;
 mod trig;
 
 #[macro_export]
+macro_rules! count {
+    ($($x:tt)*) => {
+        <[()]>::len(&[$($x)*])
+    };
+}
+#[macro_export]
 macro_rules! transformation {
     ($($sym:ident),+; $from:expr => $to:expr) => {{
         $(
@@ -39,6 +48,24 @@ macro_rules! transformation {
         Transformation {
             from: crate::ast::Expr::from($from),
             to: crate::ast::Expr::from($to),
+            conditions: std::rc::Rc::new(std::collections::HashMap::new())
+        }
+    }};
+    ($($sym:ident),+; $from:expr => $to:expr, if $(|$cond_sym:ident| $cond:expr),+) => {{
+        $(
+            let $sym = crate::symbol::Symbol::new(stringify!($sym), crate::dimension::Unit::Unitless);
+        )+
+
+        let mut conds = std::collections::HashMap::<Symbol, fn(crate::ast::Expr) -> bool>::new();
+
+        $(
+            conds.insert($cond_sym, |$cond_sym: crate::ast::Expr| $cond);
+        )+
+
+        Transformation {
+            from: crate::ast::Expr::from($from),
+            to: crate::ast::Expr::from($to),
+            conditions: std::rc::Rc::new(conds)
         }
     }};
 }
@@ -47,16 +74,34 @@ macro_rules! transformation {
 
 pub trait Simplify {
     fn simplify(&self) -> Expr;
+    fn range(&self) -> Range;
 }
+
+// pub struct MatrixSet {
+
+// }
 
 /* --------------------------------- STRUCTS -------------------------------- */
 
-#[derive(Clone, Copy, Hash, PartialEq, Eq)]
+pub type PatternDomain = fn(Symbol) -> Range;
+
+#[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Transformation {
     pub from: Expr,
     pub to: Expr,
+
+    /// For each symbol in From, this returns a range that bound expressions must be contained in or equal to.
+    pub domain: PatternDomain,
 }
+
 /* ---------------------------------- IMPLS --------------------------------- */
+
+impl Range {
+    pub const UNBOUNDED: Self = todo!();
+    pub const REAL: Self = todo!();
+    pub const IMAG: Self = todo!();
+    pub const NON_ZERO: Self = todo!();
+}
 
 impl Simplify for Expr {
     fn simplify(&self) -> Expr {
@@ -86,7 +131,7 @@ impl Simplify for Expr {
 
             // Seed search paths
             for t in &transformations {
-                let rewritten = simplified.rewrite(*t, false);
+                let rewritten = simplified.rewrite(t.clone(), false);
                 if rewritten.structural_eq(simplified) {
                     continue;
                 }
@@ -97,7 +142,7 @@ impl Simplify for Expr {
                     best_size = size;
                 }
 
-                paths.push((*t, rewritten, rewritten.size()));
+                paths.push((t.clone(), rewritten, rewritten.size()));
             }
 
             for _ in 0..MAX_DEPTH {
@@ -105,7 +150,7 @@ impl Simplify for Expr {
 
                 for path in paths.clone().iter() {
                     for t in &transformations {
-                        let rewritten = path.1.rewrite(*t, false);
+                        let rewritten = path.1.rewrite(t.clone(), false);
                         if rewritten.structural_eq(path.1) {
                             continue;
                         }
@@ -117,7 +162,7 @@ impl Simplify for Expr {
                             best_size = size;
                         }
 
-                        leafs.push((*t, rewritten, rewritten.size()));
+                        leafs.push((t.clone(), rewritten, rewritten.size()));
                     }
                 }
 
@@ -143,6 +188,7 @@ impl Simplify for Expr {
 
         step
     }
+    fn range(&self) -> Range {}
 }
 
 impl Simplify for Double {
@@ -169,102 +215,9 @@ impl Simplify for Double {
 
 impl Simplify for Variadic {
     fn simplify(&self) -> Expr {
-        let simplified =
-            self.operands_ref().iter().map(Expr::simplify).collect::<Vec<_>>();
-
-        match self {
-            Variadic::Add(_) => {
-                let flattened = simplified
-                    .into_iter()
-                    .flat_map(|expr| match expr.node() {
-                        Node::Variadic(Variadic::Add(exprs)) => exprs,
-                        _ => vec![expr],
-                    })
-                    .collect::<Vec<_>>();
-
-                let (mut folded, constant) =
-                    fold_consts(flattened, 0.into(), |acc, x| {
-                        if acc.unit() == Unit::Unitless {
-                            (acc * x.unit()) + x
-                        } else {
-                            acc + x
-                        }
-                    });
-
-                if constant.value() != 0.0.into() {
-                    folded.push(constant.into());
-                }
-
-                if folded.len() <= 1 {
-                    return folded.try_remove(0).unwrap_or(0.into());
-                } else {
-                    Variadic::Add(folded).into()
-                }
-            }
-            Variadic::Mul(_) => {
-                let flattened = simplified
-                    .into_iter()
-                    .flat_map(|expr| match expr.node() {
-                        Node::Variadic(Variadic::Mul(exprs)) => exprs,
-                        _ => vec![expr],
-                    })
-                    .collect::<Vec<_>>();
-
-                let (folded, constant) =
-                    fold_consts(flattened, 1.into(), |acc, x| acc * x);
-
-                let mut groupings =
-                    Vec::<(Expr, usize)>::with_capacity(folded.len());
-
-                for term in folded.into_iter() {
-                    if let Some((_, occurances)) = groupings
-                        .iter_mut()
-                        .find(|(t, _)| t.structural_eq(term))
-                    {
-                        *occurances += 1;
-                    } else {
-                        groupings.push((term, 1));
-                    }
-                }
-
-                let mut aggregated: Vec<_> = groupings
-                    .into_iter()
-                    .map(|(base, exp)| {
-                        if exp == 1 {
-                            base
-                        } else {
-                            base ^ Scalar::from(exp as f32)
-                        }
-                    })
-                    .collect();
-
-                aggregated.insert(0, constant.into());
-
-                if aggregated.len() <= 1 {
-                    return aggregated.try_remove(0).unwrap_or(0.into());
-                } else {
-                    Variadic::Mul(aggregated).into()
-                }
-            }
-        }
+        self.with_operands(
+            self.operands_ref().iter().map(Expr::simplify).collect::<Vec<_>>(),
+        )
+        .into()
     }
-}
-
-/* -------------------------------- FUNCTIONS ------------------------------- */
-
-fn fold_consts(
-    mut operands: Vec<Expr>,
-    init: Quantity,
-    fold: impl FnMut(Quantity, Quantity) -> Quantity,
-) -> (Vec<Expr>, Quantity) {
-    let folded_const = operands
-        .iter()
-        .filter_map(|expr| {
-            if let Node::Const(val) = expr.node() { Some(val) } else { None }
-        })
-        .fold(init, fold);
-
-    operands.retain(|expr| !matches!(expr.node(), Node::Const(_)));
-
-    (operands, folded_const)
 }
