@@ -12,7 +12,7 @@ use num::{
 
 use crate::{impl_assign_op, impl_binary_op};
 
-const EQ_ABS_TOL: f64 = 1e-15;
+pub const EQ_ABS_TOL: f64 = 1e-15;
 
 /* --------------------------------- STRUCTS -------------------------------- */
 
