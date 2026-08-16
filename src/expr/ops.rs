@@ -1,40 +1,19 @@
 use std::{
     cmp::Ordering,
-    env::Args,
     fmt::{self, Display, Pointer, Write},
-    ops::{Index, Neg},
+    ops::Index,
 };
 
 use itertools::Itertools;
-use num::{complex::ComplexFloat, pow::Pow};
+use num::complex::ComplexFloat;
 
 use crate::{
-    ast::{Expr, Node},
     dimension::Unit,
-    simplify::Transformation,
-    symbol::constants::{self, e},
+    expr::{Expr, Node},
+    symbol::constants::e,
     util::to_superscript,
 };
 
-// #[derive(PartialEq, Clone, Debug)]
-// pub enum Intrinsic {
-//     Add(Vec<Expr>),
-//     Mul(Vec<Expr>),
-//     // Div { num: Expr, denom: Expr },
-//     Neg(Expr),
-
-//     Sin(Expr),
-//     Cos(Expr),
-//     Asin(Expr),
-//     Acos(Expr),
-
-//     Pow { base: Expr, exp: Expr },
-//     Log { base: Expr, arg: Expr },
-//     Norm(Expr),
-
-//     Inv(Expr),
-//     Transpose(Expr),
-// }
 #[derive(PartialEq, Clone, Debug)]
 pub enum Variadic {
     Add(Vec<Expr>),

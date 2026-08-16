@@ -4,15 +4,14 @@
 #![feature(const_ops)]
 #![feature(generic_atomic)]
 #![feature(iter_map_windows)]
-use std::ops::Mul;
 
 use num::Complex;
 
 mod arena;
-mod ast;
 mod diff;
 mod dimension;
 mod eq;
+mod expr;
 mod macros;
 mod normal;
 mod scalar;
@@ -20,6 +19,5 @@ mod set;
 mod simplify;
 mod symbol;
 mod util;
-mod var;
 
 pub use scalar::*;

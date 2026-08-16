@@ -1,9 +1,6 @@
 use std::ops::{Add, BitXor, Div, DivAssign, Mul, MulAssign, Sub};
 
-use num::{
-    Num,
-    complex::{Complex32, Complex64},
-};
+use num::complex::{Complex32, Complex64};
 
 use crate::{
     Scalar,

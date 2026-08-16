@@ -1,4 +1,4 @@
-use crate::{ast::Expr, var::Variable};
+use crate::{dimension::Quantity, expr::Expr, symbol::Symbol};
 
 pub struct Equation {
     lhs: Expr,
@@ -8,4 +8,9 @@ pub struct Equation {
 pub struct System {
     equations: Vec<Equation>,
     vars: Vec<Variable>,
+}
+
+pub enum Variable {
+    Unknown(Symbol),
+    Known(Symbol, Quantity),
 }

@@ -1,21 +1,14 @@
-use std::{
-    cmp::Ordering,
-    collections::HashMap,
-    iter::{Filter, Once, once},
-    mem::discriminant,
-    slice::Iter,
-};
+use std::{collections::HashMap, iter::once, mem::discriminant};
 
-use itertools::{Either, Itertools};
 use num::complex::ComplexFloat;
 
 use crate::{
     Scalar,
-    ast::{
+    dimension::Quantity,
+    expr::{
         Expr, Node,
         ops::{Double, Single, Variadic},
     },
-    dimension::Quantity,
     symbol::Symbol,
 };
 
@@ -40,8 +33,7 @@ pub trait Normalize {
 
 impl Normalize for Variadic {
     fn normalize(&self) -> Expr {
-        let normalized =
-            self.operands_ref().iter().map(|expr| expr.normalize());
+        let normalized = self.operands_ref().iter().map(Expr::normalize);
 
         let flattened = normalized.flat_map(|expr| match expr.node() {
             Node::Variadic(op) if discriminant(&op) == discriminant(&self) => {
@@ -195,7 +187,7 @@ impl Normalize for Expr {
             Node::Variadic(variadic) => variadic.normalize(),
             Node::Single(single) => single.normalize(),
             Node::Double(double) => double.normalize(),
-            Node::Matrix(matrix) => todo!(),
+            Node::Matrix(_matrix) => todo!(),
         }
     }
 
@@ -237,7 +229,7 @@ impl Ord for Expr {
                         lhs.operands_ref().iter().cmp(rhs.operands_ref().iter())
                     })
                 }
-                (Node::Matrix(lhs), Node::Matrix(rhs)) => todo!(),
+                (Node::Matrix(_lhs), Node::Matrix(_rhs)) => todo!(),
                 _ => unreachable!(
                     "Only two nodes of the same variant can be Ordering::Equal",
                 ),

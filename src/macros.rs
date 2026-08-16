@@ -1,6 +1,4 @@
-use std::ops::MulAssign;
 
-use crate::Scalar;
 
 #[macro_export]
 macro_rules! impl_binary_op {

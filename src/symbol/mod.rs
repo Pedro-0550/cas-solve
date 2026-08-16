@@ -1,22 +1,13 @@
 use std::{
-    borrow::Cow,
-    collections::HashMap,
     fmt::Display,
     hash::Hash,
-    ops::{Add, Mul},
-    rc::Rc,
-    sync::{
-        LazyLock, Mutex, RwLock,
-        atomic::{AtomicBool, AtomicU16, AtomicUsize, Ordering},
-    },
+    sync::atomic::{AtomicBool, Ordering},
 };
 
 use crate::{
-    Complex,
     arena::{Arena, Handle},
-    ast::Expr,
-    dimension::{Dimension, Unit},
-    set::Set,
+    dimension::Unit,
+    // set::Set,
 };
 
 /* --------------------------------- MODULES -------------------------------- */
@@ -39,7 +30,7 @@ static CONSTANTS_REGISTERED: AtomicBool = AtomicBool::new(false);
 pub struct SymbolInfo {
     name: String,
     unit: Unit,
-    domain: Set,
+    // domain: Set,
 }
 
 #[derive(PartialEq, Clone, Debug, Copy, Hash, Eq)]
@@ -54,14 +45,14 @@ impl Symbol {
             CONSTANTS_REGISTERED.store(true, Ordering::SeqCst);
         }
 
-        if let Some((id, _)) = SYMBOLS.find(|k, v| &*v.name == name) {
+        if let Some((id, _)) = SYMBOLS.find(|_k, v| &*v.name == name) {
             return Symbol(id);
         }
 
         let handle = SYMBOLS.insert(SymbolInfo {
             name: name.to_owned(),
             unit: Unit::Unitless,
-            domain: Set::C,
+            // domain: Set::C,
         });
 
         Symbol(handle)
@@ -72,10 +63,10 @@ impl Symbol {
         self
     }
 
-    pub fn set_domain(self, domain: Set) -> Self {
-        SYMBOLS.modify(self.0, |i| i.domain = domain);
-        self
-    }
+    // pub fn set_domain(self, domain: Set) -> Self {
+    //     SYMBOLS.modify(self.0, |i| i.domain = domain);
+    //     self
+    // }
 
     pub fn name(&self) -> String {
         SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").name
@@ -85,9 +76,9 @@ impl Symbol {
         SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").unit
     }
 
-    pub fn domain(&self) -> Set {
-        SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").domain
-    }
+    // pub fn domain(&self) -> Set {
+    //     SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").domain
+    // }
 }
 
 impl Display for Symbol {

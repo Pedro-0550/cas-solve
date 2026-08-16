@@ -1,5 +1,5 @@
 use crate::{
-    ast::ops::{cos, cosh, log, sin, sinh},
+    expr::ops::{cos, cosh, log, sin, sinh},
     diff::Differentiable,
     dimension::Unit,
     simplify::Simplify,

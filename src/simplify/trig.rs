@@ -1,10 +1,6 @@
 use crate::{
-    ast::{
-        ops::{acos, asin, atan, cos, sin, tan},
-        *,
-    },
+    expr::ops::{acos, asin, atan, cos, sin, tan},
     simplify::Transformation,
-    symbol::Symbol,
     transformation,
 };
 

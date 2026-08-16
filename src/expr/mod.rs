@@ -1,22 +1,16 @@
 use std::{
     array,
-    cmp::Ordering,
     fmt::{Display, Pointer},
     mem::discriminant,
-    ops::{Add, Mul},
 };
 
 use derive_more::{From, IsVariant};
 use itertools::Itertools;
-use num::complex::Complex64;
 
 use crate::{
-    Scalar,
     arena::{Arena, Handle},
-    ast::ops::{Double, Matrix, Single, Variadic},
-    dimension::{
-        Dimension, DimensionalAnalysisError, Quantity, Unit, other::t,
-    },
+    dimension::Quantity,
+    expr::ops::{Double, Matrix, Single, Variadic},
     normal::Normalize,
     simplify::{Simplify, Transformation},
     symbol::Symbol,
@@ -74,8 +68,8 @@ impl Expr {
     /// Returns the total number of nodes in this expression
     pub fn size(&self) -> usize {
         match self.node() {
-            Node::Symbol(symbol) => 1,
-            Node::Const(quantity) => 1,
+            Node::Symbol(_symbol) => 1,
+            Node::Const(_quantity) => 1,
             Node::Variadic(variadic) => {
                 variadic.operands_ref().iter().map(|x| x.size()).sum::<usize>()
                     + 1
@@ -199,7 +193,7 @@ impl Expr {
                         op.args()[i].rewrite(transformation.clone(), recursive)
                     }))
                     .into(),
-                Node::Matrix(m) => todo!(),
+                Node::Matrix(_m) => todo!(),
             },
             _ => self,
         }
@@ -229,12 +223,12 @@ impl Expr {
                     }
                 }
 
-                if self.range().is_subset(&symb.domain()) {
-                    bindings.push(Binding { from: symb, to: self });
-                    Some(Match::Whole)
-                } else {
-                    None
-                }
+                // if self.range().is_subset(&symb.domain()) {
+                bindings.push(Binding { from: symb, to: self });
+                Some(Match::Whole)
+                // } else {
+                // None
+                // }
             }
             (Node::Const(pat_qty), Node::Const(target_qty)) => {
                 (pat_qty.value() == target_qty.value()).then_some(Match::Whole)
@@ -321,7 +315,7 @@ impl Expr {
             {
                 target_op.arg().match_by(pat_op.arg(), bindings)
             }
-            (Node::Matrix(pat), Node::Matrix(target)) => todo!(),
+            (Node::Matrix(_pat), Node::Matrix(_target)) => todo!(),
 
             _ => None,
         }
@@ -347,7 +341,7 @@ impl Display for Expr {
             Node::Single(op) => op.fmt(f),
             Node::Variadic(op) => op.fmt(f),
             Node::Symbol(symb) => symb.fmt(f),
-            Node::Matrix(m) => todo!(),
+            Node::Matrix(_m) => todo!(),
         }
     }
 }

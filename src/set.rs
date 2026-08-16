@@ -1,148 +1,143 @@
-/* --------------------------------- TRAITS --------------------------------- */
+// /* --------------------------------- TRAITS --------------------------------- */
+// use std::ops::{BitAnd, BitOr, Sub};
 
-use std::ops::{BitAnd, BitOr, Sub};
+// use crate::Scalar;
 
-use float_eq::float_eq;
+// /* --------------------------------- STRUCTS -------------------------------- */
+// // Impl this one day: https://arxiv.org/pdf/2402.06430
 
-use crate::{Scalar, scalar};
+// #[derive(Clone)]
+// pub struct Set(Vec<Rect>);
 
-/* --------------------------------- STRUCTS -------------------------------- */
+// #[derive(Clone)]
+// pub struct Rect {
+//     re: Interval,
+//     im: Interval,
+// }
 
-// Impl this one day: https://arxiv.org/pdf/2402.06430
+// #[derive(Clone, Copy, PartialEq)]
+// pub struct Interval {
+//     lower: Bound,
+//     upper: Bound,
+// }
 
-#[derive(Clone)]
-pub struct Set(Vec<Rect>);
+// #[derive(Clone, Copy, PartialEq)]
+// pub enum Bound {
+//     Unbounded,
+//     Closed(f64),
+//     Open(f64),
+// }
 
-#[derive(Clone)]
-pub struct Rect {
-    re: Interval,
-    im: Interval,
-}
+// /* ---------------------------------- IMPLS --------------------------------- */
+// impl Set {
+//     pub const Z: Self = todo!();
+//     pub const Z_NZ: Self = todo!();
+//     pub const Z_P: Self = todo!();
+//     pub const Z_N: Self = todo!();
+//     pub const Z_NP: Self = todo!();
+//     pub const Z_NN: Self = todo!();
 
-#[derive(Clone, Copy, PartialEq)]
-pub struct Interval {
-    lower: Bound,
-    upper: Bound,
-}
+//     pub const R: Self = todo!();
+//     pub const R_NZ: Self = todo!();
+//     pub const R_P: Self = todo!();
+//     pub const R_N: Self = todo!();
+//     pub const R_NP: Self = todo!();
+//     pub const R_NN: Self = todo!();
 
-#[derive(Clone, Copy, PartialEq)]
-pub enum Bound {
-    Unbounded,
-    Closed(f64),
-    Open(f64),
-}
+//     pub const I: Self = todo!();
+//     pub const I_P: Self = todo!();
+//     pub const I_N: Self = todo!();
 
-/* ---------------------------------- IMPLS --------------------------------- */
+//     pub const C: Self = todo!();
+//     pub const C_Q1: Self = todo!();
+//     pub const C_Q2: Self = todo!();
+//     pub const C_Q3: Self = todo!();
+//     pub const C_Q4: Self = todo!();
+//     pub const C_NZ: Self = todo!();
 
-impl Set {
-    pub const Z: Self = todo!();
-    pub const Z_NZ: Self = todo!();
-    pub const Z_P: Self = todo!();
-    pub const Z_N: Self = todo!();
-    pub const Z_NP: Self = todo!();
-    pub const Z_NN: Self = todo!();
+//     pub fn contains(&self, _x: &Scalar) -> bool {
+//         todo!()
+//     }
 
-    pub const R: Self = todo!();
-    pub const R_NZ: Self = todo!();
-    pub const R_P: Self = todo!();
-    pub const R_N: Self = todo!();
-    pub const R_NP: Self = todo!();
-    pub const R_NN: Self = todo!();
+//     pub fn is_subset(&self, _other: &Set) -> bool {
+//         todo!()
+//     }
 
-    pub const I: Self = todo!();
-    pub const I_P: Self = todo!();
-    pub const I_N: Self = todo!();
+//     pub fn is_superset(&self, _other: &Set) -> bool {
+//         todo!()
+//     }
 
-    pub const C: Self = todo!();
-    pub const C_Q1: Self = todo!();
-    pub const C_Q2: Self = todo!();
-    pub const C_Q3: Self = todo!();
-    pub const C_Q4: Self = todo!();
-    pub const C_NZ: Self = todo!();
+//     pub fn difference(&self, _other: &Set) -> Set {
+//         todo!()
+//     }
 
-    pub fn contains(&self, x: &Scalar) -> bool {
-        todo!()
-    }
+//     pub fn union(&self, _other: &Set) -> Set {
+//         todo!()
+//     }
 
-    pub fn is_subset(&self, other: &Set) -> bool {
-        todo!()
-    }
+//     pub fn intersect(&self, _other: &Set) -> Set {
+//         todo!()
+//     }
 
-    pub fn is_superset(&self, other: &Set) -> bool {
-        todo!()
-    }
+//     pub fn rect(_re: Interval, _im: Interval) -> Self {
+//         todo!()
+//     }
 
-    pub fn difference(&self, other: &Set) -> Set {
-        todo!()
-    }
+//     pub fn single(_val: impl Into<Scalar>) -> Self {
+//         todo!()
+//     }
 
-    pub fn union(&self, other: &Set) -> Set {
-        todo!()
-    }
+//     pub fn real(_interval: Interval) -> Self {
+//         todo!()
+//     }
 
-    pub fn intersect(&self, other: &Set) -> Set {
-        todo!()
-    }
+//     pub fn imag(_interval: Interval) -> Self {
+//         todo!()
+//     }
+// }
 
-    pub fn rect(re: Interval, im: Interval) -> Self {
-        todo!()
-    }
+// impl Interval {
+//     pub const UNBOUNDED: Self = todo!();
 
-    pub fn single(val: impl Into<Scalar>) -> Self {
-        todo!()
-    }
+//     pub fn new(lower: Bound, upper: Bound) -> Self {
+//         Self { lower, upper }
+//     }
+// }
 
-    pub fn real(interval: Interval) -> Self {
-        todo!()
-    }
+// impl Bound {
+//     pub fn to(self, _upper: Bound) -> Interval {
+//         todo!()
+//     }
+// }
 
-    pub fn imag(interval: Interval) -> Self {
-        todo!()
-    }
-}
+// pub fn open(_val: f64) -> Bound {
+//     todo!()
+// }
 
-impl Interval {
-    pub const UNBOUNDED: Self = todo!();
+// pub fn closed(_val: f64) -> Bound {
+//     todo!()
+// }
 
-    pub fn new(lower: Bound, upper: Bound) -> Self {
-        Self { lower, upper }
-    }
-}
+// impl Sub<Set> for Set {
+//     type Output = Set;
 
-impl Bound {
-    pub fn to(self, upper: Bound) -> Interval {
-        todo!()
-    }
-}
+//     fn sub(self, _rhs: Set) -> Self::Output {
+//         todo!()
+//     }
+// }
 
-pub fn open(val: f64) -> Bound {
-    todo!()
-}
+// impl BitAnd<Set> for Set {
+//     type Output = Set;
 
-pub fn closed(val: f64) -> Bound {
-    todo!()
-}
+//     fn bitand(self, _rhs: Set) -> Self::Output {
+//         todo!()
+//     }
+// }
 
-impl Sub<Set> for Set {
-    type Output = Set;
+// impl BitOr<Set> for Set {
+//     type Output = Set;
 
-    fn sub(self, rhs: Set) -> Self::Output {
-        todo!()
-    }
-}
-
-impl BitAnd<Set> for Set {
-    type Output = Set;
-
-    fn bitand(self, rhs: Set) -> Self::Output {
-        todo!()
-    }
-}
-
-impl BitOr<Set> for Set {
-    type Output = Set;
-
-    fn bitor(self, rhs: Set) -> Self::Output {
-        todo!()
-    }
-}
+//     fn bitor(self, _rhs: Set) -> Self::Output {
+//         todo!()
+//     }
+// }

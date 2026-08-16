@@ -1,31 +1,20 @@
-use std::{
-    array,
-    collections::{HashMap, HashSet},
-    f64::consts::{FRAC_PI_2, PI},
-    mem::discriminant,
-    path,
-    rc::Rc,
-};
+use std::array;
 
 use itertools::Itertools;
-use num::Num;
 
 use crate::{
-    Scalar,
-    ast::{
+    expr::{
         Expr, Node,
-        ops::{Double, Matrix, Single, Variadic},
+        ops::{Double, Single, Variadic},
     },
-    dimension::{Quantity, Unit},
     normal::Normalize,
-    set::{Bound, Interval, Set, closed, open},
-    symbol::Symbol,
+    // set::Set,
 };
 
 /* -------------------------------- CONSTANTS ------------------------------- */
 
-const BEAM_WIDTH: usize = 128;
-const MAX_DEPTH: usize = 8000;
+const BEAM_WIDTH: usize = 16;
+const MAX_DEPTH: usize = 800;
 
 /* --------------------------------- MODULES -------------------------------- */
 
@@ -42,8 +31,8 @@ macro_rules! transformation {
         )+
 
         Transformation {
-            from: crate::ast::Expr::from($from),
-            to: crate::ast::Expr::from($to),
+            from: crate::expr::Expr::from($from),
+            to: crate::expr::Expr::from($to),
         }
     }};
     ($($sym:ident: $set:expr),+; $from:expr => $to:expr) => {{
@@ -52,8 +41,8 @@ macro_rules! transformation {
         )+
 
         Transformation {
-            from: crate::ast::Expr::from($from),
-            to: crate::ast::Expr::from($to),
+            from: crate::expr::Expr::from($from),
+            to: crate::expr::Expr::from($to),
         }
     }};
 }
@@ -62,7 +51,7 @@ macro_rules! transformation {
 
 pub trait Simplify {
     fn simplify(&self) -> Expr;
-    fn range(&self) -> Set;
+    // fn range(&self) -> Set;
 }
 
 /* --------------------------------- STRUCTS -------------------------------- */
@@ -72,6 +61,12 @@ pub struct Transformation {
     pub from: Expr,
     pub to: Expr,
 }
+
+// struct Path {
+//     expr: Expr,
+//     cost: usize,
+//     seen: HashSet<Expr>,
+// }
 
 /* ---------------------------------- IMPLS --------------------------------- */
 
@@ -108,14 +103,20 @@ impl Simplify for Expr {
             paths.push((t.clone(), rewritten, rewritten.size()));
         }
 
-        for _ in 0..MAX_DEPTH {
+        for i in 0..MAX_DEPTH {
             let mut leafs = Vec::with_capacity(transformations.len());
 
             for path in paths.clone().iter() {
                 for t in &transformations {
-                    let rewritten =
-                        path.1.rewrite(t.clone(), false).normalize();
+                    println!(
+                        "Rewriting {} at depth {} with transformation {} -> {}",
+                        path.1, i, t.from, t.to
+                    );
+
+                    let rewritten = path.1.rewrite(t.clone(), true).normalize();
                     if rewritten == path.1 {
+                        println!("Didn't do anything, continuing",);
+
                         continue;
                     }
 
@@ -126,11 +127,26 @@ impl Simplify for Expr {
                         best_size = size;
                     }
 
+                    println!(
+                        "Transformation {} -> {} ------------ PASSED",
+                        t.from, t.to
+                    );
+
                     leafs.push((t.clone(), rewritten, rewritten.size()));
                 }
             }
 
+            println!("At depth {}, best size = {}", i, best_size);
+
             if leafs.is_empty() {
+                println!(
+                    "Leafs empty at depth {}, best size = {}",
+                    i, best_size
+                );
+                break;
+            }
+
+            if best_size == 1 {
                 break;
             }
 
@@ -142,9 +158,9 @@ impl Simplify for Expr {
         best
     }
 
-    fn range(&self) -> Set {
-        todo!()
-    }
+    // fn range(&self) -> Set {
+    //     todo!()
+    // }
 }
 
 impl Simplify for Single {
@@ -152,28 +168,28 @@ impl Simplify for Single {
         todo!()
     }
 
-    fn range(&self) -> Set {
-        match self {
-            Single::Neg(expr) => todo!(),
-            Single::Sin(expr) => todo!(),
-            Single::Cos(expr) => todo!(),
-            Single::Tan(expr) => todo!(),
-            Single::Asin(expr) => todo!(),
-            Single::Acos(expr) => todo!(),
-            Single::Atan(expr) => todo!(),
-            Single::Sinh(expr) => todo!(),
-            Single::Cosh(expr) => todo!(),
-            Single::Tanh(expr) => todo!(),
-            Single::Asinh(expr) => todo!(),
-            Single::Acosh(expr) => todo!(),
-            Single::Atanh(expr) => todo!(),
-            Single::Transpose(expr) => todo!(),
-            Single::Conj(expr) => todo!(),
-            Single::Arg(expr) => todo!(),
-            Single::Det(expr) => todo!(),
-            Single::Norm(expr) => todo!(),
-        }
-    }
+    // fn range(&self) -> Set {
+    //     match self {
+    //         Single::Neg(_expr) => todo!(),
+    //         Single::Sin(_expr) => todo!(),
+    //         Single::Cos(_expr) => todo!(),
+    //         Single::Tan(_expr) => todo!(),
+    //         Single::Asin(_expr) => todo!(),
+    //         Single::Acos(_expr) => todo!(),
+    //         Single::Atan(_expr) => todo!(),
+    //         Single::Sinh(_expr) => todo!(),
+    //         Single::Cosh(_expr) => todo!(),
+    //         Single::Tanh(_expr) => todo!(),
+    //         Single::Asinh(_expr) => todo!(),
+    //         Single::Acosh(_expr) => todo!(),
+    //         Single::Atanh(_expr) => todo!(),
+    //         Single::Transpose(_expr) => todo!(),
+    //         Single::Conj(_expr) => todo!(),
+    //         Single::Arg(_expr) => todo!(),
+    //         Single::Det(_expr) => todo!(),
+    //         Single::Norm(_expr) => todo!(),
+    //     }
+    // }
 }
 
 impl Simplify for Double {
@@ -197,9 +213,9 @@ impl Simplify for Double {
         }
     }
 
-    fn range(&self) -> Set {
-        todo!()
-    }
+    // fn range(&self) -> Set {
+    //     todo!()
+    // }
 }
 
 impl Simplify for Variadic {
@@ -210,7 +226,7 @@ impl Simplify for Variadic {
         .into()
     }
 
-    fn range(&self) -> Set {
-        todo!()
-    }
+    // fn range(&self) -> Set {
+    //     todo!()
+    // }
 }

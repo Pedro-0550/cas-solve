@@ -1,13 +1,9 @@
-use std::{
-    ops::{Add, BitXor, Div, Mul, Neg, Sub},
-    sync::LazyLock,
-};
+use std::ops::{Add, BitXor, Div, Mul, Neg, Sub};
 
-use num::pow::Pow;
 
 use crate::{
     Scalar,
-    ast::{Double, Expr, Node, Variadic, ops::Single},
+    expr::{Double, Expr, Node, Variadic, ops::Single},
     dimension::Quantity,
     symbol::Symbol,
 };

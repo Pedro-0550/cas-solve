@@ -1,23 +1,12 @@
-use core::fmt;
-use std::{
-    collections::HashMap,
-    fmt::{Display, Write},
-    ops::{Add, BitXor, Div, Mul, Sub},
-    sync::{
-        LazyLock, Mutex, RwLock,
-        atomic::{Atomic, AtomicU16, AtomicUsize, Ordering},
-    },
-};
+use std::fmt::{Display, Write};
 
 use itertools::Itertools;
-use num::{Num, complex::Complex64, pow::Pow};
-use paste::paste;
 use thiserror::Error;
 
 use crate::{
     Scalar,
     arena::{Arena, Handle},
-    ast::Expr,
+    expr::Expr,
     dimension::isq::DIMENSIONLESS,
     util::to_superscript,
 };

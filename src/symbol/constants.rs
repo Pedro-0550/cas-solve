@@ -1,12 +1,7 @@
 #![allow(non_upper_case_globals)]
 
-use std::{
-    collections::HashMap,
-    sync::{LazyLock, Mutex},
-};
-
 use crate::{
-    dimension::{Quantity, Unit, si::*},
+    dimension::{Unit, si::*},
     symbol::Symbol,
 };
 
@@ -56,7 +51,7 @@ macro_rules! constants {
             crate::symbol::SymbolInfo {
                 name: stringify!($name).to_owned(),
                 unit: ($value).unit(),
-                domain: crate::set::Set::C_NZ
+                // domain: crate::set::Set::C_NZ
             },
         );
 

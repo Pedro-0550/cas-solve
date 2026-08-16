@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, hash_map::Iter},
+    collections::HashMap,
     fmt::Debug,
     hash::Hash,
     marker::PhantomData,

@@ -1,13 +1,13 @@
-use num::{complex::Complex64, pow::Pow};
+use num::complex::Complex64;
 
 use crate::{
-    ast::{
+    expr::{
         Expr, Node,
-        ops::{Double, Single, Variadic, asin, cos, cosh, ln, sin, sinh, sqrt},
+        ops::{Double, Single, Variadic, cos, cosh, ln, sin, sinh, sqrt},
     },
+    normal::Normalize,
     simplify::Simplify,
     symbol::{Symbol, constants::e},
-    var::Variable,
 };
 
 /* --------------------------------- MODULES -------------------------------- */
@@ -39,16 +39,16 @@ impl Differentiable for Expr {
             Node::Variadic(op) => op.diff(symbol),
             Node::Single(op) => op.arg().diff(symbol) * op.diff(symbol),
             Node::Double(op) => op.diff(symbol),
-
             _ => todo!(),
         }
+        .simplify()
     }
 }
 
 impl Differentiable for Single {
     fn diff(&self, symbol: Symbol) -> Expr {
         match self {
-            Single::Neg(u) => (-1.0).into(),
+            Single::Neg(_u) => (-1.0).into(),
             Single::Sin(u) => cos(u),
             Single::Cos(u) => -sin(u),
             Single::Tan(u) => 1 / (cos(u) ^ 2),
@@ -62,10 +62,10 @@ impl Differentiable for Single {
             Single::Acosh(u) => 1 / sqrt((u ^ 2) - 1),
             Single::Atanh(u) => 1 / (1 - (u ^ 2)),
             Single::Transpose(u) => Single::Transpose(u.diff(symbol)).into(),
-            Single::Conj(u) => todo!(),
-            Single::Arg(u) => todo!(),
-            Single::Det(u) => todo!(),
-            Single::Norm(u) => todo!(),
+            Single::Conj(_u) => todo!(),
+            Single::Arg(_u) => todo!(),
+            Single::Det(_u) => todo!(),
+            Single::Norm(_u) => todo!(),
         }
     }
 }
@@ -118,7 +118,7 @@ impl Differentiable for Double {
                         / (ln(base) ^ 2)
                 }
             }
-            Self::Atan2 { a, b } => todo!(),
+            Self::Atan2 { a: _, b: _ } => todo!(),
         }
     }
 }

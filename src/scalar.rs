@@ -5,7 +5,7 @@ use std::{
 
 use float_eq::float_eq;
 use num::{
-    Complex, Float, Integer, Zero,
+    Complex, Float, Zero,
     complex::{Complex32, Complex64},
     pow::Pow,
 };
