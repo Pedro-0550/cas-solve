@@ -11,14 +11,12 @@ use std::{
     },
 };
 
-use phf::PhfHash;
-
 use crate::{
     Complex,
     arena::{Arena, Handle},
     ast::Expr,
     dimension::{Dimension, Unit},
-    simplify::Range,
+    set::Set,
 };
 
 /* --------------------------------- MODULES -------------------------------- */
@@ -41,7 +39,7 @@ static CONSTANTS_REGISTERED: AtomicBool = AtomicBool::new(false);
 pub struct SymbolInfo {
     name: String,
     unit: Unit,
-    range: Range,
+    domain: Set,
 }
 
 #[derive(PartialEq, Clone, Debug, Copy, Hash, Eq)]
@@ -63,7 +61,7 @@ impl Symbol {
         let handle = SYMBOLS.insert(SymbolInfo {
             name: name.to_owned(),
             unit: Unit::Unitless,
-            range: Range::UNBOUNDED,
+            domain: Set::C,
         });
 
         Symbol(handle)
@@ -74,8 +72,8 @@ impl Symbol {
         self
     }
 
-    pub fn set_range(self, range: Range) -> Self {
-        SYMBOLS.modify(self.0, |i| i.range = range);
+    pub fn set_domain(self, domain: Set) -> Self {
+        SYMBOLS.modify(self.0, |i| i.domain = domain);
         self
     }
 
@@ -87,8 +85,8 @@ impl Symbol {
         SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").unit
     }
 
-    pub fn range(&self) -> Range {
-        SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").range
+    pub fn domain(&self) -> Set {
+        SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").domain
     }
 }
 
@@ -97,76 +95,3 @@ impl Display for Symbol {
         f.write_str(&self.name())
     }
 }
-
-impl PhfHash for Symbol {
-    fn phf_hash<H: std::hash::Hasher>(&self, state: &mut H) {
-        self.0.0.phf_hash(state);
-    }
-}
-
-// impl SymbolicContext {
-//     pub fn new() -> Self {
-//         Self { info: HashMap::new(), next_id: SymbolId(0) }
-//     }
-//     pub fn symbol(&mut self, name: &str, dimension: Dimension) -> Symbol {
-//         if let Some((&id, _)) = self.info.iter().find(|(k, v)| &*v.name == name)
-//         {
-//             return Symbol(id);
-//         }
-
-//         let id = self.next_id;
-//         self.next_id.0 += 1;
-
-//         let name: Rc<str> = Rc::from(name);
-
-//         self.info.insert(id, SymbolInfo { name, dimension });
-
-//         Symbol(id)
-//     }
-
-//     pub fn name(&self, symbol: &Symbol) -> Option<&str> {
-//         self.info.get(&symbol.0).map(|x| &*x.name)
-//     }
-
-//     pub fn dimension(&self, symbol: &Symbol) -> Option<&str> {
-//         self.info.get(&symbol.0).map(|x| &*x.name)
-//     }
-// }
-
-// macro_rules! impl_symbol_op {
-//     ($trait:ident, $method:ident, $rhs:ty, commutative) => {
-//         impl std::ops::$trait<$rhs> for Symbol {
-//             type Output = Expr;
-
-//             fn $method(self, rhs: $rhs) -> Self::Output {
-//                 Expr::from(self).$method(Expr::from(rhs))
-//             }
-//         }
-
-//         impl std::ops::$trait<Symbol> for $rhs {
-//             type Output = Expr;
-
-//             fn $method(self, rhs: Symbol) -> Self::Output {
-//                 Expr::from(self).$method(Expr::from(rhs))
-//             }
-//         }
-//     };
-
-//     ($trait:ident, $method:ident, $rhs:ty) => {
-//         impl std::ops::$trait<$rhs> for Symbol {
-//             type Output = Expr;
-
-//             fn $method(self, rhs: $rhs) -> Self::Output {
-//                 Expr::from(self).$method(Expr::from(rhs))
-//             }
-//         }
-//     };
-// }
-
-// impl_symbol_op!(Add, add, Symbol);
-// impl_symbol_op!(Add, add, Complex, commutative);
-// impl_symbol_op!(Add, add, f64, commutative);
-
-// impl_symbol_op!(Mul, mul, Symbol);
-// impl_symbol_op!(Mul, mul, Complex, commutative);
-// impl_symbol_op!(Mul, mul, f64, commutative);

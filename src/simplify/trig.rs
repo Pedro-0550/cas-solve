@@ -1,6 +1,6 @@
 use crate::{
     ast::{
-        ops::{acos, asin, cos, sin},
+        ops::{acos, asin, atan, cos, sin, tan},
         *,
     },
     simplify::Transformation,
@@ -8,12 +8,13 @@ use crate::{
     transformation,
 };
 
-pub fn transformations() -> [Transformation; 5] {
+pub fn transformations() -> [Transformation; 6] {
     [
-        transformation!(x; sin(x) ^ 2.0 + cos(x) ^ 2.0 => 1.0),
+        transformation!(x; (sin(x) ^ 2) + (cos(x) ^ 2) => 1),
         transformation!(x; sin(-x) => -sin(x)),
         transformation!(x; cos(-x) => cos(x)),
         transformation!(x; sin(asin(x)) => x),
         transformation!(x; cos(acos(x)) => x),
+        transformation!(x; tan(atan(x)) => x),
     ]
 }

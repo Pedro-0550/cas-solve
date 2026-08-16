@@ -1,6 +1,7 @@
 use std::{
     array,
     collections::{HashMap, HashSet},
+    f64::consts::{FRAC_PI_2, PI},
     mem::discriminant,
     path,
     rc::Rc,
@@ -8,15 +9,16 @@ use std::{
 
 use itertools::Itertools;
 use num::Num;
-use phf::Map;
 
 use crate::{
     Scalar,
     ast::{
         Expr, Node,
-        ops::{Double, Matrix, Variadic},
+        ops::{Double, Matrix, Single, Variadic},
     },
     dimension::{Quantity, Unit},
+    normal::Normalize,
+    set::{Bound, Interval, Set, closed, open},
     symbol::Symbol,
 };
 
@@ -33,39 +35,25 @@ mod test;
 mod trig;
 
 #[macro_export]
-macro_rules! count {
-    ($($x:tt)*) => {
-        <[()]>::len(&[$($x)*])
-    };
-}
-#[macro_export]
 macro_rules! transformation {
     ($($sym:ident),+; $from:expr => $to:expr) => {{
         $(
-            let $sym = crate::symbol::Symbol::new(stringify!($sym), crate::dimension::Unit::Unitless);
+            let $sym = crate::symbol::Symbol::new(stringify!($sym));
         )+
 
         Transformation {
             from: crate::ast::Expr::from($from),
             to: crate::ast::Expr::from($to),
-            conditions: std::rc::Rc::new(std::collections::HashMap::new())
         }
     }};
-    ($($sym:ident),+; $from:expr => $to:expr, if $(|$cond_sym:ident| $cond:expr),+) => {{
+    ($($sym:ident: $set:expr),+; $from:expr => $to:expr) => {{
         $(
-            let $sym = crate::symbol::Symbol::new(stringify!($sym), crate::dimension::Unit::Unitless);
-        )+
-
-        let mut conds = std::collections::HashMap::<Symbol, fn(crate::ast::Expr) -> bool>::new();
-
-        $(
-            conds.insert($cond_sym, |$cond_sym: crate::ast::Expr| $cond);
+            let $sym = crate::symbol::Symbol::new(stringify!($sym)).set_domain($set);
         )+
 
         Transformation {
             from: crate::ast::Expr::from($from),
             to: crate::ast::Expr::from($to),
-            conditions: std::rc::Rc::new(conds)
         }
     }};
 }
@@ -74,121 +62,118 @@ macro_rules! transformation {
 
 pub trait Simplify {
     fn simplify(&self) -> Expr;
-    fn range(&self) -> Range;
+    fn range(&self) -> Set;
 }
 
-// pub struct MatrixSet {
-
-// }
-
 /* --------------------------------- STRUCTS -------------------------------- */
-
-pub type PatternDomain = fn(Symbol) -> Range;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub struct Transformation {
     pub from: Expr,
     pub to: Expr,
-
-    /// For each symbol in From, this returns a range that bound expressions must be contained in or equal to.
-    pub domain: PatternDomain,
 }
 
 /* ---------------------------------- IMPLS --------------------------------- */
 
-impl Range {
-    pub const UNBOUNDED: Self = todo!();
-    pub const REAL: Self = todo!();
-    pub const IMAG: Self = todo!();
-    pub const NON_ZERO: Self = todo!();
-}
-
 impl Simplify for Expr {
     fn simplify(&self) -> Expr {
-        let mut step = *self;
+        let normalized_self = self.normalize();
 
-        loop {
-            let simplified = match step.node() {
-                Node::Const(_) => step,
-                Node::Symbol(_) => step,
-                Node::Variadic(op) => op.simplify(),
-                Node::Single(op) => op.with_arg(op.arg().simplify()).into(),
-                Node::Double(op) => op.simplify(),
-                Node::Matrix(m) => Node::Matrix(m.map(Expr::simplify)).into(),
-            };
+        let transformations: Vec<Transformation> = [
+            trig::transformations().as_slice(),
+            algebraic::transformations().as_slice(),
+        ]
+        .concat();
 
-            let transformations: Vec<Transformation> = [
-                trig::transformations().as_slice(),
-                algebraic::transformations().as_slice(),
-            ]
-            .concat();
+        // this could have been an array, but is it really worth it?
+        let mut paths: Vec<(Transformation, Expr, usize)> =
+            Vec::with_capacity(BEAM_WIDTH);
+        let mut best = normalized_self;
+        let mut best_size = normalized_self.size();
 
-            // this could have been an array, but is it really worth it?
-            let mut paths: Vec<(Transformation, Expr, usize)> =
-                Vec::with_capacity(BEAM_WIDTH);
-            let mut best = simplified;
-            let mut best_size = simplified.size();
+        // Seed search paths
+        for t in &transformations {
+            let rewritten =
+                normalized_self.rewrite(t.clone(), true).normalize();
+            if rewritten == normalized_self {
+                continue;
+            }
+            let size = rewritten.size();
 
-            // Seed search paths
-            for t in &transformations {
-                let rewritten = simplified.rewrite(t.clone(), false);
-                if rewritten.structural_eq(simplified) {
-                    continue;
-                }
-                let size = rewritten.size();
-
-                if size < best_size {
-                    best = rewritten;
-                    best_size = size;
-                }
-
-                paths.push((t.clone(), rewritten, rewritten.size()));
+            if size < best_size {
+                best = rewritten;
+                best_size = size;
             }
 
-            for _ in 0..MAX_DEPTH {
-                let mut leafs = Vec::with_capacity(transformations.len());
+            paths.push((t.clone(), rewritten, rewritten.size()));
+        }
 
-                for path in paths.clone().iter() {
-                    for t in &transformations {
-                        let rewritten = path.1.rewrite(t.clone(), false);
-                        if rewritten.structural_eq(path.1) {
-                            continue;
-                        }
+        for _ in 0..MAX_DEPTH {
+            let mut leafs = Vec::with_capacity(transformations.len());
 
-                        let size = rewritten.size();
-
-                        if size < best_size {
-                            best = rewritten;
-                            best_size = size;
-                        }
-
-                        leafs.push((t.clone(), rewritten, rewritten.size()));
+            for path in paths.clone().iter() {
+                for t in &transformations {
+                    let rewritten =
+                        path.1.rewrite(t.clone(), false).normalize();
+                    if rewritten == path.1 {
+                        continue;
                     }
+
+                    let size = rewritten.size();
+
+                    if size < best_size {
+                        best = rewritten;
+                        best_size = size;
+                    }
+
+                    leafs.push((t.clone(), rewritten, rewritten.size()));
                 }
-
-                leafs.sort_by(|a, b| a.2.cmp(&b.2));
-
-                if leafs.is_empty() {
-                    break;
-                }
-
-                paths = leafs.iter().cloned().take(BEAM_WIDTH).collect();
             }
 
-            // for transformation in transformations {
-            //     simplified = simplified.rewrite(transformation)
-            // }
-
-            if best.structural_eq(step) {
+            if leafs.is_empty() {
                 break;
             }
 
-            step = best;
+            leafs.sort_by(|a, b| a.2.cmp(&b.2));
+            paths.clear();
+            paths.extend(leafs.iter().cloned().take(BEAM_WIDTH));
         }
 
-        step
+        best
     }
-    fn range(&self) -> Range {}
+
+    fn range(&self) -> Set {
+        todo!()
+    }
+}
+
+impl Simplify for Single {
+    fn simplify(&self) -> Expr {
+        todo!()
+    }
+
+    fn range(&self) -> Set {
+        match self {
+            Single::Neg(expr) => todo!(),
+            Single::Sin(expr) => todo!(),
+            Single::Cos(expr) => todo!(),
+            Single::Tan(expr) => todo!(),
+            Single::Asin(expr) => todo!(),
+            Single::Acos(expr) => todo!(),
+            Single::Atan(expr) => todo!(),
+            Single::Sinh(expr) => todo!(),
+            Single::Cosh(expr) => todo!(),
+            Single::Tanh(expr) => todo!(),
+            Single::Asinh(expr) => todo!(),
+            Single::Acosh(expr) => todo!(),
+            Single::Atanh(expr) => todo!(),
+            Single::Transpose(expr) => todo!(),
+            Single::Conj(expr) => todo!(),
+            Single::Arg(expr) => todo!(),
+            Single::Det(expr) => todo!(),
+            Single::Norm(expr) => todo!(),
+        }
+    }
 }
 
 impl Simplify for Double {
@@ -211,6 +196,10 @@ impl Simplify for Double {
                 .into(),
         }
     }
+
+    fn range(&self) -> Set {
+        todo!()
+    }
 }
 
 impl Simplify for Variadic {
@@ -219,5 +208,9 @@ impl Simplify for Variadic {
             self.operands_ref().iter().map(Expr::simplify).collect::<Vec<_>>(),
         )
         .into()
+    }
+
+    fn range(&self) -> Set {
+        todo!()
     }
 }

@@ -18,7 +18,7 @@ use crate::{
         Dimension, DimensionalAnalysisError, Quantity, Unit, other::t,
     },
     normal::Normalize,
-    simplify::{PatternDomain, Simplify, Transformation},
+    simplify::{Simplify, Transformation},
     symbol::Symbol,
 };
 
@@ -63,12 +63,6 @@ pub enum Match {
     Whole,
     Terms(Vec<(usize, usize)>),
 }
-
-// #[derive(Clone, PartialEq, Eq)]
-// pub struct Match {
-//     bindings: Vec<Binding>,
-//     matched: Vec<usize>,
-// }
 
 /* ---------------------------------- IMPLS --------------------------------- */
 
@@ -164,11 +158,7 @@ impl Expr {
             new_terms
         }
 
-        match self.match_by(
-            transformation.from,
-            &mut bindings,
-            transformation.domain,
-        ) {
+        match self.match_by(transformation.from, &mut bindings) {
             Some(Match::Whole) => transformation.to.substitute(&bindings),
             Some(Match::Terms(matches)) => {
                 let Node::Variadic(op) = self.node() else {
@@ -226,7 +216,6 @@ impl Expr {
         self,
         pattern: Expr,
         bindings: &mut Vec<Binding>,
-        domain: PatternDomain,
     ) -> Option<Match> {
         // TODO: impl greedy matching, matching x * 1 against y * a * b * g * 1 should match x -> y * a * b * g and 1 -> 1
         match (pattern.node(), self.node()) {
@@ -240,7 +229,7 @@ impl Expr {
                     }
                 }
 
-                if self.range().is_subset(domain(symb)) {
+                if self.range().is_subset(&symb.domain()) {
                     bindings.push(Binding { from: symb, to: self });
                     Some(Match::Whole)
                 } else {
@@ -266,7 +255,6 @@ impl Expr {
                     pat: &[Expr],
                     target: &[Expr],
                     bindings: &mut Vec<Binding>,
-                    domain: PatternDomain,
                     matches: &mut Vec<(usize, usize)>,
                     pat_idx: usize,
                 ) -> bool {
@@ -283,7 +271,7 @@ impl Expr {
                         let matches_sp = matches.len();
 
                         if target[target_idx]
-                            .match_by(pat[pat_idx], bindings, domain)
+                            .match_by(pat[pat_idx], bindings)
                             .is_some()
                         {
                             matches.push((pat_idx, target_idx));
@@ -292,7 +280,6 @@ impl Expr {
                                 pat,
                                 target,
                                 bindings,
-                                domain,
                                 matches,
                                 pat_idx + 1,
                             ) {
@@ -313,7 +300,6 @@ impl Expr {
                     pat_op.operands_ref(),
                     target_op.operands_ref(),
                     bindings,
-                    domain,
                     &mut matches,
                     0,
                 ) {
@@ -326,18 +312,14 @@ impl Expr {
             (Node::Double(pat_ops), Node::Double(target_ops))
                 if discriminant(&pat_ops) == discriminant(&target_ops) =>
             {
-                target_ops.args()[0]
-                    .match_by(pat_ops.args()[0], bindings, domain)
-                    .and(target_ops.args()[1].match_by(
-                        pat_ops.args()[1],
-                        bindings,
-                        domain,
-                    ))
+                target_ops.args()[0].match_by(pat_ops.args()[0], bindings).and(
+                    target_ops.args()[1].match_by(pat_ops.args()[1], bindings),
+                )
             }
             (Node::Single(pat_op), Node::Single(target_op))
                 if discriminant(&pat_op) == discriminant(&target_op) =>
             {
-                target_op.arg().match_by(pat_op.arg(), bindings, domain)
+                target_op.arg().match_by(pat_op.arg(), bindings)
             }
             (Node::Matrix(pat), Node::Matrix(target)) => todo!(),
 
