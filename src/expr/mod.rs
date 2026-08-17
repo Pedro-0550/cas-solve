@@ -1,6 +1,6 @@
 use std::{
     array,
-    fmt::{Display, Pointer},
+    fmt::{Debug, Display, Pointer},
     mem::discriminant,
     num::NonZero,
 };
@@ -42,7 +42,7 @@ pub enum Node {
 
 /* --------------------------------- STRUCTS -------------------------------- */
 
-#[derive(Clone, Copy, PartialEq, Eq, Debug, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct Expr(Handle<Node>);
 
 #[derive(Clone, PartialEq, Eq)]
@@ -202,11 +202,24 @@ impl Node {
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self.node() {
-            Node::Const(qty) => qty.fmt(f),
-            Node::Double(op) => op.fmt(f),
-            Node::Single(op) => op.fmt(f),
-            Node::Variadic(op) => op.fmt(f),
-            Node::Symbol(symb) => symb.fmt(f),
+            Node::Const(qty) => <Quantity as Display>::fmt(&qty, f),
+            Node::Double(op) => <Double as Display>::fmt(&op, f),
+            Node::Single(op) => <Single as Display>::fmt(&op, f),
+            Node::Variadic(op) => <Variadic as Display>::fmt(&op, f),
+            Node::Symbol(symb) => <Symbol as Display>::fmt(&symb, f),
+            Node::Matrix(_m) => todo!(),
+        }
+    }
+}
+
+impl Debug for Expr {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self.node() {
+            Node::Const(qty) => <Quantity as Display>::fmt(&qty, f),
+            Node::Double(op) => write!(f, "{:?}", op),
+            Node::Single(op) => write!(f, "{:?}", op),
+            Node::Variadic(op) => write!(f, "{:?}", op),
+            Node::Symbol(symb) => <Symbol as Display>::fmt(&symb, f),
             Node::Matrix(_m) => todo!(),
         }
     }

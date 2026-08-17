@@ -44,22 +44,27 @@ pub trait Simplify {
 
 impl Simplify for Expr {
     fn simplify(&self) -> Expr {
+        if self.node().is_symbol() || self.node().is_const() {
+            return *self;
+        }
+
         let mut step = self.normalize();
 
         loop {
             let simplified = match step.node() {
-                Node::Symbol(symbol) => *self,
-                Node::Const(quantity) => *self,
                 Node::Variadic(variadic) => variadic.simplify(),
                 Node::Single(single) => single.simplify(),
                 Node::Double(double) => double.simplify(),
                 Node::Matrix(matrix) => todo!(),
+                _ => step,
             }
             .normalize();
 
             if simplified == step {
                 break;
             }
+
+            println!("{} -> {} PASSED", step, simplified);
 
             step = simplified;
         }
@@ -76,8 +81,8 @@ macro_rules! impl_inv_trig_simplify {
     ($inv:ident, $fn:ident, $expr:ident, $self:ident) => {
         match $expr.node() {
             Node::Const(qty) => Scalar::from(qty.value().$fn()).into(),
-            Node::Single(Single::$inv(x)) => x,
-            _ => (*$self).into(),
+            Node::Single(Single::$inv(x)) => x.simplify(),
+            _ => $self.with_arg($self.arg().simplify()).into(),
         }
     };
 }
@@ -97,14 +102,18 @@ impl Simplify for Single {
             Single::Arg(expr) => todo!(),
             Single::Det(expr) => todo!(),
             Single::Norm(expr) => todo!(),
-            _ => (*self).into(),
+            _ => self.with_arg(self.arg().simplify()).into(),
         }
     }
 }
 
 impl Simplify for Double {
     fn simplify(&self) -> Expr {
-        match self {
+        let simplified = self
+            .with_args(array::from_fn(|i| self.args()[i].simplify()))
+            .into();
+
+        match simplified {
             Double::Pow { base, exp } => {
                 if let Node::Double(Double::Pow {
                     base: inner_base,
@@ -121,12 +130,10 @@ impl Simplify for Double {
                 {
                     (1.0).into()
                 } else {
-                    (*self).into()
+                    simplified.into()
                 }
             }
-            _ => self
-                .with_args(array::from_fn(|i| self.args()[i].simplify()))
-                .into(),
+            _ => simplified.into(),
         }
     }
 }
@@ -149,13 +156,21 @@ impl Simplify for Variadic {
                     .or_insert(0.0.into()) += coef.value();
             } else if self.is_mul()
                 && let Node::Double(Double::Pow { base, exp }) = term.node()
-                && let Node::Const(qty) = exp.node()
-                && qty.value().is_integer()
+                && let Node::Const(exp) = exp.node()
+                && exp.value().is_integer()
             {
-                *groupings.entry(base).or_insert(0.0.into()) += qty.value();
+                *groupings.entry(base).or_insert(0.0.into()) += exp.value();
             } else {
                 *groupings.entry(term).or_insert(0.0.into()) += 1;
             }
+        }
+
+        println!(
+            "===================== Expr {} grouped into:",
+            Expr::from(self.clone())
+        );
+        for (k, v) in &groupings {
+            println!("{} => {}", k, v);
         }
 
         let mut aggregated: Vec<Expr> = match self {

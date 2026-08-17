@@ -1,7 +1,7 @@
 use crate::{
-    expr::ops::{cos, cosh, log, sin, sinh},
     diff::Differentiable,
     dimension::Unit,
+    expr::ops::{cos, cosh, log, sin, sinh},
     simplify::Simplify,
     symbol::Symbol,
 };
@@ -25,4 +25,7 @@ fn diff() {
         f_of_xy.diff(x),
         f_of_xy.diff(y)
     )
+
+    // let expr = cos(x ^ 2) ^ 2;
+    // panic!("{}", expr.diff(x));
 }

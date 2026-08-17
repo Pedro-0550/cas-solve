@@ -120,38 +120,3 @@ impl Differentiable for Double {
         }
     }
 }
-
-// impl Differentiable for Intrinsic {
-//     fn diff(&self, symbol: Symbol) -> Expr {
-//         match self {
-//             Intrinsic::Add(terms) => Intrinsic::Add(
-//                 terms.iter().map(|expr| expr.diff(symbol)).collect(),
-//             )
-//             .into(),
-//             Intrinsic::Mul(terms) => Intrinsic::Add(
-//                 terms
-//                     .iter()
-//                     .map(|expr| {
-//                         let mut factors = Vec::with_capacity(terms.len());
-//                         factors.push(expr.diff(symbol));
-//                         factors.extend(terms.iter().filter(|x| *x != expr));
-//                         Intrinsic::Mul(factors).into()
-//                     })
-//                     .collect(),
-//             )
-//             .into(),
-//             Intrinsic::Inv(expr) => -expr.diff(symbol) / (expr ^ 2),
-//             Intrinsic::Neg(expr) => -expr.diff(symbol),
-
-//             Intrinsic::Sin(expr) => expr.diff(symbol) * cos(expr),
-//             Intrinsic::Cos(expr) => expr.diff(symbol) * -sin(expr),
-//             Intrinsic::Asin(expr) => expr.diff(symbol) / sqrt(1 - expr ^ 2),
-//             Intrinsic::Acos(expr) => -asin(expr).diff(symbol),
-//             Intrinsic::Norm(expr) => todo!(),
-//             Intrinsic::Transpose(expr) => {
-//                 Intrinsic::Transpose(expr.diff(symbol)).into()
-//             }
-//         }
-//         .simplify()
-//     }
-// }

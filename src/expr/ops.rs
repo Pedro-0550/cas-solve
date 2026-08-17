@@ -1,6 +1,7 @@
 use std::{
     cmp::Ordering,
     fmt::{self, Display, Pointer, Write},
+    iter::once,
     num::NonZero,
     ops::Index,
 };
@@ -341,8 +342,7 @@ impl Display for Variadic {
                         }
 
                         Variadic::Mul(
-                            consts
-                                .map(|x| Expr::from(x.value().abs() * x.unit()))
+                            once(Expr::from(coef.value().abs() * coef.unit()))
                                 .chain(exprs)
                                 .collect(),
                         )
@@ -493,8 +493,6 @@ impl Display for Variadic {
                     f.write_char(')')?;
                 }
             }
-
-            _ => todo!(),
         }
         Ok(())
     }
