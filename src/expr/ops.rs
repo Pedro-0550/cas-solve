@@ -13,6 +13,7 @@ use crate::{
     core::util::to_superscript,
     dimension::{Quantity, Unit},
     expr::{Expr, Node, Shape, Shaped},
+    simplify::separate_consts,
     symbol::constants::e,
 };
 
@@ -24,8 +25,6 @@ pub enum Variadic {
 
 #[derive(PartialEq, Clone, Debug, Copy, IsVariant, TryUnwrap, Unwrap)]
 pub enum Single {
-    Neg(Expr),
-
     Sin(Expr),
     Cos(Expr),
     Tan(Expr),
@@ -147,7 +146,6 @@ impl Shaped for Variadic {
 impl Single {
     pub fn with_arg(&self, arg: Expr) -> Self {
         match self {
-            Single::Neg(_) => Single::Neg(arg),
             Single::Sin(_) => Single::Sin(arg),
             Single::Cos(_) => Single::Cos(arg),
             Single::Tan(_) => Single::Tan(arg),
@@ -170,7 +168,6 @@ impl Single {
 
     pub fn arg(self) -> Expr {
         match self {
-            Single::Neg(arg) => arg,
             Single::Sin(arg) => arg,
             Single::Cos(arg) => arg,
             Single::Tan(arg) => arg,
@@ -193,7 +190,6 @@ impl Single {
 
     pub fn name(&self) -> &'static str {
         match self {
-            Single::Neg(_) => "neg",
             Single::Sin(_) => "sin",
             Single::Cos(_) => "cos",
             Single::Tan(_) => "tan",
@@ -256,13 +252,6 @@ impl Shaped for Double {
 impl Display for Single {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            Single::Neg(expr) => {
-                let parenthesize =
-                    matches!(expr.node(), Node::Variadic(Variadic::Add(_)));
-
-                f.write_char('-')?;
-                write_enclosed(expr, f, parenthesize)
-            }
             Single::Transpose(expr) => {
                 let parenthesize = matches!(
                     expr.node(),
@@ -339,14 +328,25 @@ impl Display for Variadic {
         match self {
             Variadic::Add(terms) => {
                 for (i, term) in terms.iter().enumerate() {
-                    if let Node::Single(Single::Neg(expr)) = term.node() {
+                    if let Node::Variadic(Variadic::Mul(terms)) = term.node()
+                        && let (mut consts, exprs) = separate_consts(terms)
+                        && let Ok(coef) = consts.by_ref().exactly_one()
+                        && coef.value().is_real()
+                        && coef.value().re < 0.0
+                    {
                         if i > 0 {
                             f.write_str(" - ")?;
                         } else {
                             f.write_str("-")?;
                         }
 
-                        expr.fmt(f)?;
+                        Variadic::Mul(
+                            consts
+                                .map(|x| Expr::from(x.value().abs() * x.unit()))
+                                .chain(exprs)
+                                .collect(),
+                        )
+                        .fmt(f)?;
                     } else {
                         if i > 0 {
                             f.write_str(" + ")?;
@@ -363,18 +363,17 @@ impl Display for Variadic {
                         Node::Symbol(_)
                             | Node::Const(_)
                             | Node::Double(Double::Pow { .. })
-                            | Node::Single(Single::Neg(_))
                     )
                 }
 
                 fn sort_terms(terms: &Vec<Expr>) -> Vec<Expr> {
-                    let (mut scalar_part, mut mat_part): (
+                    let (mut mat_part, mut scalar_part): (
                         Vec<Expr>,
                         Vec<Expr>,
-                    ) = terms.iter().partition(|x| x.node().is_matrix());
+                    ) = terms.iter().partition(|x| x.shape().is_rect());
 
                     scalar_part.sort_by(|a, b| {
-                        if matches!(a.node(), Node::Single(Single::Neg(_))) {
+                        if matches!(a.node(), Node::Const(_)) {
                             return Ordering::Less;
                         }
 

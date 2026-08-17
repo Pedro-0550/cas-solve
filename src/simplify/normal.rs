@@ -68,7 +68,7 @@ impl Normalize for Variadic {
         //     }
         // }
 
-        let (mut result, positive) = match self {
+        let mut result = match self {
             Variadic::Add(_) => {
                 let mut exprs = exprs.collect_vec();
 
@@ -89,7 +89,7 @@ impl Normalize for Variadic {
                     exprs.push(folded_const.into());
                 }
 
-                (exprs, true)
+                exprs
             }
             Variadic::Mul(_) => {
                 let folded_const =
@@ -103,35 +103,23 @@ impl Normalize for Variadic {
                     return 0.0.into();
                 }
 
-                let mut n_negative = 0;
-                let mut unsigned = exprs
-                    .chain(once(folded_const.into()))
-                    .map(|x| match x.node() {
-                        Node::Single(Single::Neg(expr)) => {
-                            n_negative += 1;
-                            expr
-                        }
-                        _ => x,
-                    })
-                    .collect::<Vec<_>>();
+                let mut exprs = exprs.collect_vec();
 
-                if folded_const.value().abs() == 1.0 && unsigned.len() > 1 {
-                    unsigned.pop();
+                if folded_const.value() != 1.0.into() || exprs.len() == 0 {
+                    exprs.push(folded_const.into());
                 }
 
-                (unsigned, n_negative % 2 == 0)
+                exprs
             }
         };
 
         result.sort_unstable();
 
-        let result = if result.len() <= 1 {
+        if result.len() <= 1 {
             result.pop().unwrap_or(0.into())
         } else {
             self.with_operands(result).into()
-        };
-
-        if positive { result } else { Single::Neg(result).into() }
+        }
     }
 
     fn rank(&self) -> usize {
@@ -149,7 +137,8 @@ impl Normalize for Single {
 
     fn rank(&self) -> usize {
         match self {
-            Single::Neg(_) => 0,
+            // Why does this start at one? We had a 0 variant but i removed it, and writing this comment definetly took
+            // less time than shifting all the numbers.
             Single::Sin(_) => 1,
             Single::Cos(_) => 2,
             Single::Tan(_) => 3,

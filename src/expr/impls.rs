@@ -115,7 +115,7 @@ macro_rules! impl_expr_ops {
                 );
 
                 assert!(
-                    lhs.shape().is_square() ^ rhs.shape().is_square(),
+                    !(lhs.shape().is_square() && rhs.shape().is_square()),
                     "Cannot raise a matrix to the power of another matrix yet"
                 );
 
@@ -142,7 +142,7 @@ impl Neg for Expr {
     type Output = Expr;
 
     fn neg(self) -> Self::Output {
-        Single::Neg(self).into()
+        -1 * self
     }
 }
 
@@ -150,7 +150,7 @@ impl Neg for Symbol {
     type Output = Expr;
 
     fn neg(self) -> Self::Output {
-        Single::Neg(self.into()).into()
+        -1 * self
     }
 }
 

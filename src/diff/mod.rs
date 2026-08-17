@@ -47,7 +47,6 @@ impl Differentiable for Expr {
 impl Differentiable for Single {
     fn diff(&self, symbol: Symbol) -> Expr {
         match self {
-            Single::Neg(_u) => (-1.0).into(),
             Single::Sin(u) => cos(u),
             Single::Cos(u) => -sin(u),
             Single::Tan(u) => 1 / (cos(u) ^ 2),

@@ -179,10 +179,10 @@ impl Shaped for Expr {
     fn shape(&self) -> Shape {
         match self.node() {
             Node::Symbol(symbol) => symbol.shape(),
-            Node::Const(quantity) => Shape::SCALAR,
-            Node::Variadic(variadic) => todo!(),
-            Node::Single(single) => todo!(),
-            Node::Double(double) => todo!(),
+            Node::Const(_) => Shape::SCALAR,
+            Node::Variadic(variadic) => variadic.shape(),
+            Node::Single(single) => single.shape(),
+            Node::Double(double) => double.shape(),
             Node::Matrix(matrix) => matrix.shape(),
         }
     }
