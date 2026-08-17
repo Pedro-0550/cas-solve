@@ -21,9 +21,9 @@ fn diff() {
 
     panic!(
         "f(x, y) = {}\n∂f(x, y)/∂x = {}\n∂f(x, y)/∂y = {}",
-        f_of_xy.simplify(),
-        f_of_xy.diff(x),
-        f_of_xy.diff(y)
+        f_of_xy.simplify(&mut None),
+        f_of_xy.diff(x, &mut None),
+        f_of_xy.diff(y, &mut None)
     )
 
     // let expr = cos(x ^ 2) ^ 2;

@@ -5,7 +5,7 @@ use crate::{
         Expr, Node,
         ops::{Double, Single, Variadic, cos, cosh, ln, sin, sinh, sqrt},
     },
-    simplify::{Simplify, normal::Normalize},
+    simplify::{Simplify, Step, normal::Normalize},
     symbol::{Symbol, constants::e},
 };
 
@@ -25,27 +25,29 @@ pub struct Dual {
 /* --------------------------------- TRAITS --------------------------------- */
 
 pub trait Differentiable {
-    fn diff(&self, symbol: Symbol) -> Expr;
+    fn diff(&self, symbol: Symbol, steps: &mut Option<Vec<Step>>) -> Expr;
 }
 
 /* ---------------------------------- IMPLS --------------------------------- */
 
 impl Differentiable for Expr {
-    fn diff(&self, symbol: Symbol) -> Expr {
-        match self.simplify().node() {
+    fn diff(&self, symbol: Symbol, steps: &mut Option<Vec<Step>>) -> Expr {
+        match self.simplify(steps).node() {
             Node::Const(_) => 0.into(),
             Node::Symbol(s) => if symbol == s { 1 } else { 0 }.into(),
-            Node::Variadic(op) => op.diff(symbol),
-            Node::Single(op) => op.arg().diff(symbol) * op.diff(symbol),
-            Node::Double(op) => op.diff(symbol),
+            Node::Variadic(op) => op.diff(symbol, steps),
+            Node::Single(op) => {
+                op.arg().diff(symbol, steps) * op.diff(symbol, steps)
+            }
+            Node::Double(op) => op.diff(symbol, steps),
             _ => todo!(),
         }
-        .simplify()
+        .simplify(steps)
     }
 }
 
 impl Differentiable for Single {
-    fn diff(&self, symbol: Symbol) -> Expr {
+    fn diff(&self, symbol: Symbol, steps: &mut Option<Vec<Step>>) -> Expr {
         match self {
             Single::Sin(u) => cos(u),
             Single::Cos(u) => -sin(u),
@@ -59,7 +61,9 @@ impl Differentiable for Single {
             Single::Asinh(u) => 1 / sqrt((u ^ 2) + 1),
             Single::Acosh(u) => 1 / sqrt((u ^ 2) - 1),
             Single::Atanh(u) => 1 / (1 - (u ^ 2)),
-            Single::Transpose(u) => Single::Transpose(u.diff(symbol)).into(),
+            Single::Transpose(u) => {
+                Single::Transpose(u.diff(symbol, steps)).into()
+            }
             Single::Conj(_u) => todo!(),
             Single::Arg(_u) => todo!(),
             Single::Det(_u) => todo!(),
@@ -69,10 +73,10 @@ impl Differentiable for Single {
 }
 
 impl Differentiable for Variadic {
-    fn diff(&self, symbol: Symbol) -> Expr {
+    fn diff(&self, symbol: Symbol, steps: &mut Option<Vec<Step>>) -> Expr {
         match self {
             Variadic::Add(terms) => Variadic::Add(
-                terms.iter().map(|expr| expr.diff(symbol)).collect(),
+                terms.iter().map(|expr| expr.diff(symbol, steps)).collect(),
             )
             .into(),
             Variadic::Mul(terms) => Variadic::Add(
@@ -81,7 +85,7 @@ impl Differentiable for Variadic {
                     .enumerate()
                     .map(|(i, expr)| {
                         let mut factors = Vec::with_capacity(terms.len());
-                        factors.push(expr.diff(symbol));
+                        factors.push(expr.diff(symbol, steps));
                         factors.extend(
                             terms
                                 .iter()
@@ -98,21 +102,21 @@ impl Differentiable for Variadic {
 }
 
 impl Differentiable for Double {
-    fn diff(&self, symbol: Symbol) -> Expr {
+    fn diff(&self, symbol: Symbol, steps: &mut Option<Vec<Step>>) -> Expr {
         match self {
             Double::Pow { base, exp } => {
                 (base ^ exp)
-                    * (base.diff(symbol) * exp / base
-                        + exp.diff(symbol) * ln(base))
+                    * (base.diff(symbol, steps) * exp / base
+                        + exp.diff(symbol, steps) * ln(base))
             }
             Double::Log { base, arg } => {
                 if *base == e.into() {
-                    arg.diff(symbol) / arg
-                } else if base.diff(symbol) == 0.into() {
-                    arg.diff(symbol) / (arg * ln(base))
+                    arg.diff(symbol, steps) / arg
+                } else if base.diff(symbol, steps) == 0.into() {
+                    arg.diff(symbol, steps) / (arg * ln(base))
                 } else {
-                    ((arg.diff(symbol) / arg) * ln(base)
-                        - (base.diff(symbol) / base) * ln(arg))
+                    ((arg.diff(symbol, steps) / arg) * ln(base)
+                        - (base.diff(symbol, steps) / base) * ln(arg))
                         / (ln(base) ^ 2)
                 }
             }

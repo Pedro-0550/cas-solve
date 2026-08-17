@@ -1,10 +1,20 @@
-use crate::{simplify::Simplify, symbol::Symbol};
+use std::time::{self, Instant};
+
+use crate::{
+    expr::ops::{cos, cosh, log, sinh},
+    simplify::Simplify,
+    symbol::Symbol,
+};
 
 #[test]
-fn rewriting() {
-    let a = Symbol::new("a");
-    let b = Symbol::new("b");
-    let c = Symbol::new("c");
+fn factoring() {
+    let x = Symbol::new("x");
+    let y = Symbol::new("y");
 
-    panic!("{}", ((a * b) + (a * c)).simplify())
+    let start = Instant::now();
+    let simp =
+        (x + x * y + (1245 * x * y * (cos(x ^ 2) ^ 2) * sinh(y) * log(x, y)))
+            .simplify(&mut None);
+
+    panic!("{}, in {} ms", simp, start.elapsed().as_millis())
 }

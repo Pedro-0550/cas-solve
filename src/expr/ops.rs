@@ -444,9 +444,6 @@ impl Display for Variadic {
                 }
 
                 for (i, mut term) in denom.clone().into_iter().enumerate() {
-                    let parenthesize =
-                        matches!(term.node(), Node::Variadic(Variadic::Add(_)));
-
                     if !joinable(&term) && i != 0 {
                         f.write_char('·')?;
                     }
@@ -477,6 +474,9 @@ impl Display for Variadic {
                             ),
                         }
                     }
+
+                    let parenthesize =
+                        matches!(term.node(), Node::Variadic(Variadic::Add(_)));
 
                     write_enclosed(term, f, parenthesize)?;
 

@@ -121,3 +121,29 @@ impl Display for Scalar {
         }
     }
 }
+
+pub fn gcd_f64(mut a: f64, mut b: f64) -> f64 {
+    a = a.abs();
+    b = b.abs();
+
+    if float_eq!(a, 0.0, abs <= EQ_ABS_TOL) {
+        return b;
+    }
+
+    if float_eq!(b, 0.0, abs <= EQ_ABS_TOL) {
+        return a;
+    }
+
+    while b >= EQ_ABS_TOL {
+        let r = a % b;
+
+        if r.abs() < EQ_ABS_TOL {
+            return b;
+        }
+
+        a = b;
+        b = r.abs();
+    }
+
+    a
+}
