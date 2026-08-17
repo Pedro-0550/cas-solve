@@ -2,17 +2,17 @@ use std::{
     array,
     fmt::{Display, Pointer},
     mem::discriminant,
+    num::NonZero,
 };
 
-use derive_more::{From, IsVariant};
+use derive_more::{From, IsVariant, TryUnwrap, Unwrap};
 use itertools::Itertools;
 
 use crate::{
-    arena::{Arena, Handle},
+    core::arena::{Arena, Handle},
     dimension::Quantity,
     expr::ops::{Double, Matrix, Single, Variadic},
-    normal::Normalize,
-    simplify::{Simplify, Transformation},
+    simplify::{Simplify, normal::Normalize},
     symbol::Symbol,
 };
 
@@ -27,18 +27,16 @@ pub mod ops;
 
 #[cfg(test)]
 mod test;
+
 /* ---------------------------------- ENUMS --------------------------------- */
 
-#[derive(PartialEq, Clone, Debug, From, IsVariant)]
+#[derive(PartialEq, Clone, Debug, From, IsVariant, Unwrap, TryUnwrap)]
 pub enum Node {
     Symbol(Symbol),
     Const(Quantity),
-
     Variadic(Variadic),
     Single(Single),
     Double(Double),
-
-    #[from(ignore)]
     Matrix(Matrix),
 }
 
@@ -53,12 +51,67 @@ pub struct Binding {
     to: Expr,
 }
 
-pub enum Match {
-    Whole,
-    Terms(Vec<(usize, usize)>),
+#[derive(Copy, Clone, PartialEq, Eq, Debug, Hash)]
+pub struct Shape {
+    rows: NonZero<usize>,
+    cols: NonZero<usize>,
+}
+
+/* --------------------------------- TRAITS --------------------------------- */
+
+pub trait Shaped {
+    fn shape(&self) -> Shape;
 }
 
 /* ---------------------------------- IMPLS --------------------------------- */
+
+impl Shape {
+    // SAFETY:
+    // As of August 2026, 1 is not equal to 0.
+    // If this changes in the future, use checked version instead.
+    pub const SCALAR: Self = unsafe {
+        Shape {
+            cols: NonZero::<usize>::new_unchecked(1),
+            rows: NonZero::<usize>::new_unchecked(1),
+        }
+    };
+
+    pub fn transpose(self) -> Self {
+        Self { rows: self.cols, cols: self.rows }
+    }
+
+    pub fn square(size: usize) -> Self {
+        Self { rows: size.try_into().unwrap(), cols: size.try_into().unwrap() }
+    }
+
+    pub fn rect(rows: usize, cols: usize) -> Self {
+        Self { rows: rows.try_into().unwrap(), cols: cols.try_into().unwrap() }
+    }
+
+    pub fn is_scalar(&self) -> bool {
+        self.rows.get() == 1 && self.cols.get() == 1
+    }
+
+    pub fn is_row(&self) -> bool {
+        self.rows.get() > 1 && self.cols.get() == 1
+    }
+
+    pub fn is_col(&self) -> bool {
+        self.rows.get() == 1 && self.cols.get() > 1
+    }
+
+    pub fn is_vec(&self) -> bool {
+        (self.rows.get() > 1) ^ (self.cols.get() > 1)
+    }
+
+    pub fn is_rect(&self) -> bool {
+        self.rows.get() > 1 && self.cols.get() > 1
+    }
+
+    pub fn is_square(&self) -> bool {
+        self.rows.get() > 1 && self.rows == self.rows
+    }
+}
 
 impl Expr {
     pub fn node(&self) -> Node {
@@ -82,12 +135,6 @@ impl Expr {
                 matrix.elements().iter().map(|x| x.size()).sum::<usize>() + 1
             }
         }
-    }
-
-    /// Returns true if two expressions's normalized forms are equal, such as `(a + b) * x` and `x * (b + a)`.
-    /// This method does not perform simplification before comparison.
-    pub fn structural_eq(&self, rhs: Expr) -> bool {
-        self.normalize() == rhs.normalize()
     }
 
     pub fn substitute(self, bindings: &[Binding]) -> Self {
@@ -126,198 +173,17 @@ impl Expr {
             _ => self,
         }
     }
+}
 
-    /// Rewrites this expression by trying to apply a transformation. If the transformation pattern does not match, does nothing.
-    pub fn rewrite(
-        self,
-        transformation: Transformation,
-        recursive: bool,
-    ) -> Self {
-        let mut bindings = Vec::new();
-
-        fn replace_terms(
-            transformation: Transformation,
-            bindings: &[Binding],
-            terms: &[Expr],
-            matches: &[usize],
-        ) -> Vec<Expr> {
-            let mut new_terms: Vec<_> = terms
-                .into_iter()
-                .enumerate()
-                .filter_map(|(i, term)| {
-                    (!matches.contains(&i)).then_some(term).cloned()
-                })
-                .collect();
-            new_terms.push(transformation.to.substitute(bindings));
-            new_terms
-        }
-
-        match self.match_by(transformation.from, &mut bindings) {
-            Some(Match::Whole) => transformation.to.substitute(&bindings),
-            Some(Match::Terms(matches)) => {
-                let Node::Variadic(op) = self.node() else {
-                    unreachable!();
-                };
-
-                op.with_operands(replace_terms(
-                    transformation,
-                    &bindings,
-                    &op.operands_ref(),
-                    matches
-                        .iter()
-                        .map(|(_, t_idx)| *t_idx)
-                        .collect::<Vec<_>>()
-                        .as_slice(),
-                ))
-                .into()
-            }
-            None if recursive => match self.node() {
-                Node::Symbol(_) | Node::Const(_) => self,
-                Node::Variadic(op) => op
-                    .with_operands(
-                        op.operands_ref()
-                            .iter()
-                            .map(|x| {
-                                x.rewrite(transformation.clone(), recursive)
-                            })
-                            .collect(),
-                    )
-                    .into(),
-                Node::Single(op) => op
-                    .with_arg(
-                        op.arg().rewrite(transformation.clone(), recursive),
-                    )
-                    .into(),
-                Node::Double(op) => op
-                    .with_args(array::from_fn(|i| {
-                        op.args()[i].rewrite(transformation.clone(), recursive)
-                    }))
-                    .into(),
-                Node::Matrix(_m) => todo!(),
-            },
-            _ => self,
-        }
-    }
-
-    /// Matches a pattern expression against a subexpression of self, by binding the pattern's symbols to parts of this expression.
-    /// If it does not match, `bindings` is unchanged.
-    /// For commutative ops, returns a Match::Terms containing the operands that were matched.
-    /// On non commutative, that value is Match::Whole, since the entire expression must match.
-    /// On an insuccesful match, returns None.
-    /// Examples:
-    /// `(x^2 + y + x + 10).match_by(a^2 + a + 10)` would return Match::Terms([0, 1, 2]), and would bind `a` to `x`, leaving y unbound.
-    pub fn match_by(
-        self,
-        pattern: Expr,
-        bindings: &mut Vec<Binding>,
-    ) -> Option<Match> {
-        // TODO: impl greedy matching, matching x * 1 against y * a * b * g * 1 should match x -> y * a * b * g and 1 -> 1
-        match (pattern.node(), self.node()) {
-            (Node::Symbol(symb), _) => {
-                for binding in &*bindings {
-                    if binding.from == symb {
-                        return binding
-                            .to
-                            .structural_eq(self)
-                            .then_some(Match::Whole);
-                    }
-                }
-
-                // if self.range().is_subset(&symb.domain()) {
-                bindings.push(Binding { from: symb, to: self });
-                Some(Match::Whole)
-                // } else {
-                // None
-                // }
-            }
-            (Node::Const(pat_qty), Node::Const(target_qty)) => {
-                (pat_qty.value() == target_qty.value()).then_some(Match::Whole)
-            }
-            // TODO: handle non commutability of the matrix
-            (Node::Variadic(pat_op), Node::Variadic(target_op))
-                if discriminant(&pat_op) == discriminant(&target_op) =>
-            {
-                // This is a variation of bipartite graph matching problem and theres various algorithms to use.
-                // The thing is that assigning for example "x" to be "y + 10", means that every other occurance of
-                // "y + 10" must be x as well.
-                // Since n is very small I chose backtracking which is simple
-                //
-                //
-                // Did i mention i hate tree algorithms btw, its because thats why
-
-                fn backtrack(
-                    pat: &[Expr],
-                    target: &[Expr],
-                    bindings: &mut Vec<Binding>,
-                    matches: &mut Vec<(usize, usize)>,
-                    pat_idx: usize,
-                ) -> bool {
-                    if pat_idx == pat.len() {
-                        return true;
-                    }
-
-                    for target_idx in 0..target.len() {
-                        if matches.iter().any(|&(_, i)| i == target_idx) {
-                            continue;
-                        }
-
-                        let bindings_sp = bindings.len();
-                        let matches_sp = matches.len();
-
-                        if target[target_idx]
-                            .match_by(pat[pat_idx], bindings)
-                            .is_some()
-                        {
-                            matches.push((pat_idx, target_idx));
-
-                            if backtrack(
-                                pat,
-                                target,
-                                bindings,
-                                matches,
-                                pat_idx + 1,
-                            ) {
-                                return true;
-                            }
-                        }
-
-                        bindings.truncate(bindings_sp);
-                        matches.truncate(matches_sp);
-                    }
-
-                    false
-                }
-
-                let mut matches = Vec::new();
-
-                if backtrack(
-                    pat_op.operands_ref(),
-                    target_op.operands_ref(),
-                    bindings,
-                    &mut matches,
-                    0,
-                ) {
-                    Some(Match::Terms(matches))
-                } else {
-                    None
-                }
-            }
-
-            (Node::Double(pat_ops), Node::Double(target_ops))
-                if discriminant(&pat_ops) == discriminant(&target_ops) =>
-            {
-                target_ops.args()[0].match_by(pat_ops.args()[0], bindings).and(
-                    target_ops.args()[1].match_by(pat_ops.args()[1], bindings),
-                )
-            }
-            (Node::Single(pat_op), Node::Single(target_op))
-                if discriminant(&pat_op) == discriminant(&target_op) =>
-            {
-                target_op.arg().match_by(pat_op.arg(), bindings)
-            }
-            (Node::Matrix(_pat), Node::Matrix(_target)) => todo!(),
-
-            _ => None,
+impl Shaped for Expr {
+    fn shape(&self) -> Shape {
+        match self.node() {
+            Node::Symbol(symbol) => symbol.shape(),
+            Node::Const(quantity) => Shape::SCALAR,
+            Node::Variadic(variadic) => todo!(),
+            Node::Single(single) => todo!(),
+            Node::Double(double) => todo!(),
+            Node::Matrix(matrix) => matrix.shape(),
         }
     }
 }

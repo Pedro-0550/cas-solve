@@ -5,8 +5,9 @@ use std::{
 };
 
 use crate::{
-    arena::{Arena, Handle},
+    core::arena::{Arena, Handle},
     dimension::Unit,
+    expr::Shape,
     // set::Set,
 };
 
@@ -30,7 +31,7 @@ static CONSTANTS_REGISTERED: AtomicBool = AtomicBool::new(false);
 pub struct SymbolInfo {
     name: String,
     unit: Unit,
-    // domain: Set,
+    shape: Shape, // domain: Set,
 }
 
 #[derive(PartialEq, Clone, Debug, Copy, Hash, Eq)]
@@ -52,15 +53,10 @@ impl Symbol {
         let handle = SYMBOLS.insert(SymbolInfo {
             name: name.to_owned(),
             unit: Unit::Unitless,
-            // domain: Set::C,
+            shape: Shape::SCALAR, // domain: Set::C,
         });
 
         Symbol(handle)
-    }
-
-    pub fn set_unit(self, unit: Unit) -> Self {
-        SYMBOLS.modify(self.0, |i| i.unit = unit);
-        self
     }
 
     // pub fn set_domain(self, domain: Set) -> Self {
@@ -74,6 +70,20 @@ impl Symbol {
 
     pub fn unit(&self) -> Unit {
         SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").unit
+    }
+
+    pub fn set_unit(self, unit: Unit) -> Self {
+        SYMBOLS.modify(self.0, |i| i.unit = unit);
+        self
+    }
+
+    pub fn shape(&self) -> Shape {
+        SYMBOLS.get_cloned(self.0).expect("invalid symbol handle").shape
+    }
+
+    pub fn set_shape(self, shape: Shape) -> Self {
+        SYMBOLS.modify(self.0, |i| i.shape = shape);
+        self
     }
 
     // pub fn domain(&self) -> Set {

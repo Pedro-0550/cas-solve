@@ -35,7 +35,7 @@ macro_rules! constants {
     ) => {
         $(#[$meta])*
         pub const $name: Symbol =
-            Symbol(crate::arena::Handle::new($i));
+            Symbol(crate::core::arena::Handle::new($i));
 
         constants!(@defs $i + 1; $($($rest)*)?);
     };
@@ -51,6 +51,7 @@ macro_rules! constants {
             crate::symbol::SymbolInfo {
                 name: stringify!($name).to_owned(),
                 unit: ($value).unit(),
+                shape: crate::expr::Shape::SCALAR
                 // domain: crate::set::Set::C_NZ
             },
         );

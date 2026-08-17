@@ -4,20 +4,21 @@
 #![feature(const_ops)]
 #![feature(generic_atomic)]
 #![feature(iter_map_windows)]
+#![feature(const_try)]
 
 use num::Complex;
 
-mod arena;
-mod diff;
-mod dimension;
-mod eq;
-mod expr;
-mod macros;
-mod normal;
-mod scalar;
-mod set;
-mod simplify;
-mod symbol;
-mod util;
+pub mod core {
+    pub mod arena;
+    pub mod macros;
+    pub mod scalar;
+    pub mod util;
+}
 
-pub use scalar::*;
+pub mod diff;
+pub mod dimension;
+pub mod eq;
+pub mod expr;
+pub mod set;
+pub mod simplify;
+pub mod symbol;

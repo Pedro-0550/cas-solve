@@ -1,9 +1,11 @@
 use std::{collections::HashMap, iter::once, mem::discriminant};
 
+use itertools::Itertools;
 use num::complex::ComplexFloat;
 
+use super::separate_consts;
 use crate::{
-    Scalar,
+    core::scalar::Scalar,
     dimension::Quantity,
     expr::{
         Expr, Node,
@@ -14,13 +16,12 @@ use crate::{
 
 /* --------------------------------- TRAITS --------------------------------- */
 
-/// Adds suport for conversion into a standard form, without altering the mathematical value of an expression.
-/// Variadic expressions have a standard order in which theyre stored:
-/// * Symbols, sorted by name then by internal id;
-/// * Functions, sorted by name and arguments;
-/// * Consts, sorted as purely reals first, then purely imaginary, whcih are subsorted by value, then complex, sorted by norm;
-/// * Other variadics, which are sorted by their operands;
-/// * and Matrices, which are sorted by (TODO)
+/// Adds support for conversion into a standard form, without touching symbols or simplifying algebraic constructions
+/// To be exact, normalize will only:
+///  * Flatten nested variadics;
+///  * Fold negation, such that `(-a) * (-b) -> a * b` and `(-a) * b -> -(a * b)`
+///  * Fold constants into a single term;
+///  * And sort terms in a standard, deterministic order
 pub trait Normalize {
     fn normalize(&self) -> Expr;
 
@@ -42,62 +43,68 @@ impl Normalize for Variadic {
             _ => vec![expr],
         });
 
-        let (consts, exprs) = (
-            flattened.clone().filter_map(|expr| match expr.node() {
-                Node::Const(qty) => Some(qty),
-                _ => None,
-            }),
-            flattened.filter(|expr| !expr.node().is_const()),
-        );
+        let (consts, exprs) = separate_consts(flattened);
 
-        let mut groupings =
-            HashMap::<Expr, usize>::with_capacity(self.operands_ref().len());
+        // let mut groupings =
+        //     HashMap::<Expr, Scalar>::with_capacity(self.operands_ref().len());
 
-        for term in exprs.into_iter() {
-            *groupings.entry(term).or_insert(0) += 1;
-        }
+        // for term in exprs.into_iter() {
+        //     if self.is_add()
+        //         && let Node::Variadic(Variadic::Mul(terms)) = term.node()
+        //         && let (consts, exprs) = separate_consts(terms)
+        //         && let Ok(coef) = consts.exactly_one()
+        //     {
+        //         *groupings
+        //             .entry(Variadic::Mul(exprs.collect()).into())
+        //             .or_insert(0.0.into()) += coef.value();
+        //     } else if self.is_mul()
+        //         && let Node::Double(Double::Pow { base, exp }) = term.node()
+        //         && let Node::Const(qty) = exp.node()
+        //         && qty.value().is_integer()
+        //     {
+        //         *groupings.entry(base).or_insert(0.0.into()) += qty.value();
+        //     } else {
+        //         *groupings.entry(term).or_insert(0.0.into()) += 1;
+        //     }
+        // }
 
         let (mut result, positive) = match self {
             Variadic::Add(_) => {
+                let mut exprs = exprs.collect_vec();
+
                 let folded_const = consts.fold(0.into(), |acc: Quantity, x| {
                     (acc.value() + x.value()) * x.unit()
                 });
 
-                let mut aggregated: Vec<_> = groupings
-                    .into_iter()
-                    .map(|(base, mul)| {
-                        if mul == 1 {
-                            base
-                        } else {
-                            base * Scalar::from(mul as f32)
-                        }
-                    })
-                    .collect();
+                // let mut aggregated: Vec<_> = groupings
+                //     .into_iter()
+                //     .map(
+                //         |(base, mul)| {
+                //             if mul == 1.0.into() { base } else { base * mul }
+                //         },
+                //     )
+                //     .collect();
 
-                if folded_const.value() != 0.0.into() {
-                    aggregated.push(folded_const.into());
+                if folded_const.value() != 0.0.into() || exprs.len() == 0 {
+                    exprs.push(folded_const.into());
                 }
 
-                (aggregated, true)
+                (exprs, true)
             }
             Variadic::Mul(_) => {
                 let folded_const =
                     consts.fold(1.into(), |acc: Quantity, x| acc * x);
 
-                let aggregated = groupings.into_iter().map(|(base, exp)| {
-                    if exp == 1 {
-                        base
-                    } else {
-                        base ^ Scalar::from(exp as f32)
-                    }
-                });
+                // let aggregated = groupings.into_iter().map(|(base, exp)| {
+                //     if exp == 1.0.into() { base } else { base ^ exp }
+                // });
 
                 if folded_const.value() == 0.0.into() {
                     return 0.0.into();
                 }
 
                 let mut n_negative = 0;
-                let mut unsigned = aggregated
+                let mut unsigned = exprs
                     .chain(once(folded_const.into()))
                     .map(|x| match x.node() {
                         Node::Single(Single::Neg(expr)) => {
@@ -108,7 +115,7 @@ impl Normalize for Variadic {
                     })
                     .collect::<Vec<_>>();
 
-                if folded_const.value().abs() == 1.0 {
+                if folded_const.value().abs() == 1.0 && unsigned.len() > 1 {
                     unsigned.pop();
                 }
 
@@ -258,7 +265,7 @@ impl PartialOrd for Symbol {
 
 #[cfg(test)]
 mod test {
-    use crate::{dimension::Unit, normal::Normalize, symbol::Symbol};
+    use crate::{dimension::Unit, simplify::normal::Normalize, symbol::Symbol};
 
     #[test]
     fn normalization() {

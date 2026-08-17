@@ -4,11 +4,13 @@ use itertools::Itertools;
 use thiserror::Error;
 
 use crate::{
-    Scalar,
-    arena::{Arena, Handle},
-    expr::Expr,
+    core::{
+        arena::{Arena, Handle},
+        scalar::Scalar,
+        util::to_superscript,
+    },
     dimension::isq::DIMENSIONLESS,
-    util::to_superscript,
+    expr::Expr,
 };
 
 pub mod isq;

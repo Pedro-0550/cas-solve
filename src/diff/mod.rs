@@ -5,8 +5,7 @@ use crate::{
         Expr, Node,
         ops::{Double, Single, Variadic, cos, cosh, ln, sin, sinh, sqrt},
     },
-    normal::Normalize,
-    simplify::Simplify,
+    simplify::{Simplify, normal::Normalize},
     symbol::{Symbol, constants::e},
 };
 

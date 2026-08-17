@@ -3,12 +3,12 @@ use std::array;
 use itertools::Itertools;
 
 use crate::{
+    dimension::Quantity,
     expr::{
         Expr, Node,
         ops::{Double, Single, Variadic},
     },
-    normal::Normalize,
-    // set::Set,
+    simplify::normal::Normalize, // set::Set,
 };
 
 /* -------------------------------- CONSTANTS ------------------------------- */
@@ -18,34 +18,10 @@ const MAX_DEPTH: usize = 800;
 
 /* --------------------------------- MODULES -------------------------------- */
 
-mod algebraic;
 #[cfg(test)]
 mod test;
-mod trig;
 
-#[macro_export]
-macro_rules! transformation {
-    ($($sym:ident),+; $from:expr => $to:expr) => {{
-        $(
-            let $sym = crate::symbol::Symbol::new(stringify!($sym));
-        )+
-
-        Transformation {
-            from: crate::expr::Expr::from($from),
-            to: crate::expr::Expr::from($to),
-        }
-    }};
-    ($($sym:ident: $set:expr),+; $from:expr => $to:expr) => {{
-        $(
-            let $sym = crate::symbol::Symbol::new(stringify!($sym)).set_domain($set);
-        )+
-
-        Transformation {
-            from: crate::expr::Expr::from($from),
-            to: crate::expr::Expr::from($to),
-        }
-    }};
-}
+pub mod normal;
 
 /* --------------------------------- TRAITS --------------------------------- */
 
@@ -55,12 +31,6 @@ pub trait Simplify {
 }
 
 /* --------------------------------- STRUCTS -------------------------------- */
-
-#[derive(Clone, Copy, PartialEq, Eq)]
-pub struct Transformation {
-    pub from: Expr,
-    pub to: Expr,
-}
 
 // struct Path {
 //     expr: Expr,
@@ -72,90 +42,14 @@ pub struct Transformation {
 
 impl Simplify for Expr {
     fn simplify(&self) -> Expr {
-        let normalized_self = self.normalize();
-
-        let transformations: Vec<Transformation> = [
-            trig::transformations().as_slice(),
-            algebraic::transformations().as_slice(),
-        ]
-        .concat();
-
-        // this could have been an array, but is it really worth it?
-        let mut paths: Vec<(Transformation, Expr, usize)> =
-            Vec::with_capacity(BEAM_WIDTH);
-        let mut best = normalized_self;
-        let mut best_size = normalized_self.size();
-
-        // Seed search paths
-        for t in &transformations {
-            let rewritten =
-                normalized_self.rewrite(t.clone(), true).normalize();
-            if rewritten == normalized_self {
-                continue;
-            }
-            let size = rewritten.size();
-
-            if size < best_size {
-                best = rewritten;
-                best_size = size;
-            }
-
-            paths.push((t.clone(), rewritten, rewritten.size()));
+        match self.normalize().node() {
+            Node::Symbol(symbol) => *self,
+            Node::Const(quantity) => *self,
+            Node::Variadic(variadic) => todo!(),
+            Node::Single(single) => todo!(),
+            Node::Double(double) => todo!(),
+            Node::Matrix(matrix) => todo!(),
         }
-
-        for i in 0..MAX_DEPTH {
-            let mut leafs = Vec::with_capacity(transformations.len());
-
-            for path in paths.clone().iter() {
-                for t in &transformations {
-                    println!(
-                        "Rewriting {} at depth {} with transformation {} -> {}",
-                        path.1, i, t.from, t.to
-                    );
-
-                    let rewritten = path.1.rewrite(t.clone(), true).normalize();
-                    if rewritten == path.1 {
-                        println!("Didn't do anything, continuing",);
-
-                        continue;
-                    }
-
-                    let size = rewritten.size();
-
-                    if size < best_size {
-                        best = rewritten;
-                        best_size = size;
-                    }
-
-                    println!(
-                        "Transformation {} -> {} ------------ PASSED",
-                        t.from, t.to
-                    );
-
-                    leafs.push((t.clone(), rewritten, rewritten.size()));
-                }
-            }
-
-            println!("At depth {}, best size = {}", i, best_size);
-
-            if leafs.is_empty() {
-                println!(
-                    "Leafs empty at depth {}, best size = {}",
-                    i, best_size
-                );
-                break;
-            }
-
-            if best_size == 1 {
-                break;
-            }
-
-            leafs.sort_by(|a, b| a.2.cmp(&b.2));
-            paths.clear();
-            paths.extend(leafs.iter().cloned().take(BEAM_WIDTH));
-        }
-
-        best
     }
 
     // fn range(&self) -> Set {
@@ -229,4 +123,16 @@ impl Simplify for Variadic {
     // fn range(&self) -> Set {
     //     todo!()
     // }
+}
+
+pub fn separate_consts(
+    terms: impl IntoIterator<Item = Expr> + Clone,
+) -> (impl Iterator<Item = Quantity>, impl Iterator<Item = Expr>) {
+    (
+        terms.clone().into_iter().filter_map(|expr| match expr.node() {
+            Node::Const(qty) => Some(qty),
+            _ => None,
+        }),
+        terms.into_iter().filter(|expr| !expr.node().is_const()),
+    )
 }

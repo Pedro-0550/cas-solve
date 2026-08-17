@@ -1,26 +1,28 @@
 use std::{
     cmp::Ordering,
     fmt::{self, Display, Pointer, Write},
+    num::NonZero,
     ops::Index,
 };
 
+use derive_more::{IsVariant, TryUnwrap, Unwrap};
 use itertools::Itertools;
 use num::complex::ComplexFloat;
 
 use crate::{
-    dimension::Unit,
-    expr::{Expr, Node},
+    core::util::to_superscript,
+    dimension::{Quantity, Unit},
+    expr::{Expr, Node, Shape, Shaped},
     symbol::constants::e,
-    util::to_superscript,
 };
 
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, IsVariant, TryUnwrap, Unwrap)]
 pub enum Variadic {
     Add(Vec<Expr>),
     Mul(Vec<Expr>),
 }
 
-#[derive(PartialEq, Clone, Debug, Copy)]
+#[derive(PartialEq, Clone, Debug, Copy, IsVariant, TryUnwrap, Unwrap)]
 pub enum Single {
     Neg(Expr),
 
@@ -47,7 +49,7 @@ pub enum Single {
     Norm(Expr),
 }
 
-#[derive(PartialEq, Clone, Debug, Copy)]
+#[derive(PartialEq, Clone, Debug, Copy, IsVariant)]
 pub enum Double {
     Pow { base: Expr, exp: Expr },
     Log { base: Expr, arg: Expr },
@@ -57,8 +59,7 @@ pub enum Double {
 /// Row-major matrix type
 #[derive(PartialEq, Clone, Debug)]
 pub struct Matrix {
-    rows: usize,
-    cols: usize,
+    shape: Shape,
     elements: Vec<Expr>,
 }
 
@@ -66,16 +67,16 @@ pub struct Matrix {
 
 impl Matrix {
     /// Returns (rows, cols) for this matrix
-    pub fn shape(&self) -> (usize, usize) {
-        (self.rows, self.cols)
+    pub fn shape(&self) -> Shape {
+        self.shape
     }
 
-    pub fn rows(&self) -> usize {
-        self.rows
+    pub fn rows(&self) -> NonZero<usize> {
+        self.shape.rows
     }
 
-    pub fn cols(&self) -> usize {
-        self.cols
+    pub fn cols(&self) -> NonZero<usize> {
+        self.shape.cols
     }
 
     pub fn elements(&self) -> &[Expr] {
@@ -84,8 +85,7 @@ impl Matrix {
 
     pub fn map(&self, f: impl FnMut(&Expr) -> Expr) -> Matrix {
         Matrix {
-            rows: self.rows,
-            cols: self.cols,
+            shape: self.shape,
             elements: self.elements.iter().map(f).collect(),
         }
     }
@@ -95,8 +95,8 @@ impl Index<usize> for Matrix {
     type Output = [Expr];
 
     fn index(&self, row: usize) -> &Self::Output {
-        let start = row * self.cols;
-        let end = start + self.cols;
+        let start = row * self.shape.cols.get();
+        let end = start + self.shape.cols.get();
         &self.elements[start..end]
     }
 }
@@ -124,17 +124,28 @@ impl Variadic {
     }
 }
 
-// impl NonCommutative {
-//     pub fn with_operands(self, ops: Vec<Expr>) -> Self {
-//         match self {
-//             NonCommutative::MatMul(_) => NonCommutative::MatMul(ops),
-//         }
-//     }
-// }
+impl Shaped for Variadic {
+    fn shape(&self) -> Shape {
+        match self {
+            Variadic::Add(exprs) => exprs.first().unwrap().shape(),
+            Variadic::Mul(exprs) => {
+                exprs.iter().fold(Shape::SCALAR, |acc, term| {
+                    let b = term.shape();
+
+                    // Special case: dot product, vec * vec, but same direction only
+                    if acc == b && acc.is_vec() {
+                        acc
+                    } else {
+                        Shape { rows: acc.rows, cols: b.cols }
+                    }
+                })
+            }
+        }
+    }
+}
 
 impl Single {
     pub fn with_arg(&self, arg: Expr) -> Self {
-        // There's no avoiding it without unsafe transmutes
         match self {
             Single::Neg(_) => Single::Neg(arg),
             Single::Sin(_) => Single::Sin(arg),
@@ -158,7 +169,6 @@ impl Single {
     }
 
     pub fn arg(self) -> Expr {
-        // There's no avoiding it without unsafe transmutes
         match self {
             Single::Neg(arg) => arg,
             Single::Sin(arg) => arg,
@@ -205,9 +215,18 @@ impl Single {
     }
 }
 
+impl Shaped for Single {
+    fn shape(&self) -> Shape {
+        match self {
+            Self::Transpose(expr) => expr.shape().transpose(),
+            Self::Det(_) | Self::Norm(_) => Shape::SCALAR,
+            _ => self.arg().shape(),
+        }
+    }
+}
+
 impl Double {
     pub fn with_args(&self, args: [Expr; 2]) -> Self {
-        // There's no avoiding it without unsafe transmutes
         match self {
             Double::Atan2 { .. } => Double::Atan2 { a: args[0], b: args[1] },
             Double::Log { .. } => Double::Log { base: args[0], arg: args[1] },
@@ -220,6 +239,16 @@ impl Double {
             Double::Atan2 { a, b } => [a, b],
             Double::Log { base, arg } => [base, arg],
             Double::Pow { base, exp } => [base, exp],
+        }
+    }
+}
+
+impl Shaped for Double {
+    fn shape(&self) -> Shape {
+        match self {
+            Double::Pow { base, exp } => exp.shape(),
+            Double::Log { base, arg } => arg.shape(),
+            Double::Atan2 { a, b } => Shape::SCALAR,
         }
     }
 }
@@ -465,56 +494,7 @@ impl Display for Variadic {
                     f.write_char(')')?;
                 }
             }
-            // Intrinsic::Pow { base, exp } => {
 
-            // }
-            // Intrinsic::Neg(expr) => {
-            //     let parenthesize = !matches!(
-            //         expr.node(),
-            //         Node::Symbol(_)
-            //             | Node::Const(_)
-            //             | Node::Intrinsic(
-            //                 Intrinsic::Pow { .. } | Intrinsic::Mul(_)
-            //             )
-            //     );
-
-            //     f.write_str("-")?;
-
-            //     if parenthesize {
-            //         f.write_str("(")?;
-            //     }
-            //     expr.fmt(f)?;
-            //     if parenthesize {
-            //         f.write_str(")")?;
-            //     }
-            // }
-            // Intrinsic::Inv(expr) => {
-            //     let parenthesize =
-            //         !matches!(expr.node(), Node::Symbol(_) | Node::Const(_));
-
-            //     if parenthesize {
-            //         f.write_str("(")?;
-            //     }
-            //     expr.fmt(f)?;
-            //     if parenthesize {
-            //         f.write_str(")")?;
-            //     }
-
-            //     f.write_str(&to_superscript(-1))?;
-            // }
-            // Intrinsic::Log { base, arg } => {
-            //     if *base == e.into() {
-            //         f.write_str("ln(")?;
-            //         arg.fmt(f)?;
-            //         f.write_str(")")?;
-            //     } else {
-            //         f.write_str("log(")?;
-            //         base.fmt(f)?;
-            //         f.write_str(", ")?;
-            //         arg.fmt(f)?;
-            //         f.write_str(")")?;
-            //     }
-            // }
             _ => todo!(),
         }
         Ok(())
@@ -539,59 +519,55 @@ fn write_enclosed(
     Ok(())
 }
 
-pub fn sin(x: impl Into<Expr>) -> Expr {
-    Single::Sin(x.into()).into()
+macro_rules! impl_single_fn {
+    ($fn:ident, $variant:ident, $name:literal) => {
+        pub fn $fn(x: impl Into<Expr>) -> Expr {
+            let expr = x.into();
+            let shape = expr.shape();
+
+            assert!(
+                shape.is_square() || shape.is_scalar(),
+                "Matrix-valued {} is only defined for square matrices",
+                $name
+            );
+
+            Single::$variant(expr).into()
+        }
+    };
 }
 
-pub fn cos(x: impl Into<Expr>) -> Expr {
-    Single::Cos(x.into()).into()
-}
+impl_single_fn!(sin, Sin, "sine");
+impl_single_fn!(cos, Cos, "cosine");
+impl_single_fn!(tan, Tan, "tangent");
 
-pub fn tan(x: impl Into<Expr>) -> Expr {
-    Single::Tan(x.into()).into()
-}
+impl_single_fn!(asin, Asin, "inverse sine");
+impl_single_fn!(acos, Acos, "inverse cosine");
+impl_single_fn!(atan, Atan, "inverse tangent");
 
-pub fn asin(x: impl Into<Expr>) -> Expr {
-    Single::Asin(x.into()).into()
-}
+impl_single_fn!(sinh, Sinh, "hyperbolic sine");
+impl_single_fn!(cosh, Cosh, "hyperbolic cosine");
+impl_single_fn!(tanh, Tanh, "hyperbolic tangent");
 
-pub fn acos(x: impl Into<Expr>) -> Expr {
-    Single::Acos(x.into()).into()
-}
-
-pub fn atan(x: impl Into<Expr>) -> Expr {
-    Single::Atan(x.into()).into()
-}
-
-/* -------------------------------------------------------------------------- */
-
-pub fn sinh(x: impl Into<Expr>) -> Expr {
-    Single::Sinh(x.into()).into()
-}
-
-pub fn cosh(x: impl Into<Expr>) -> Expr {
-    Single::Cosh(x.into()).into()
-}
-
-pub fn tanh(x: impl Into<Expr>) -> Expr {
-    Single::Tanh(x.into()).into()
-}
-
-pub fn asinh(x: impl Into<Expr>) -> Expr {
-    Single::Asinh(x.into()).into()
-}
-
-pub fn acosh(x: impl Into<Expr>) -> Expr {
-    Single::Acosh(x.into()).into()
-}
-
-pub fn atanh(x: impl Into<Expr>) -> Expr {
-    Single::Atanh(x.into()).into()
-}
+impl_single_fn!(asinh, Asinh, "inverse hyperbolic sine");
+impl_single_fn!(acosh, Acosh, "inverse hyperbolic cosine");
+impl_single_fn!(atanh, Atanh, "inverse hyperbolic tangent");
 
 /* -------------------------------------------------------------------------- */
 
 pub fn log(base: impl Into<Expr>, x: impl Into<Expr>) -> Expr {
+    let base = base.into();
+    let x = x.into();
+
+    assert!(
+        base.shape().is_scalar(),
+        "Logarithm is only defined for scalar bases"
+    );
+
+    assert!(
+        x.shape().is_square() || x.shape().is_scalar(),
+        "Matrix-valued logarithm is only defined for square matrices"
+    );
+
     Double::Log { base: base.into(), arg: x.into() }.into()
 }
 
