@@ -15,11 +15,6 @@ use crate::{
     symbol::Symbol, // set::Set,
 };
 
-/* -------------------------------- CONSTANTS ------------------------------- */
-
-const BEAM_WIDTH: usize = 16;
-const MAX_DEPTH: usize = 800;
-
 /* --------------------------------- MODULES -------------------------------- */
 
 #[cfg(test)]
@@ -63,7 +58,7 @@ impl Simplify for Expr {
         let mut step = self.normalize();
 
         loop {
-            let simplified = match step.node() {
+            let simplified = match &*step.node() {
                 Node::Variadic(variadic) => variadic.simplify(steps),
                 Node::Single(single) => single.simplify(steps),
                 Node::Double(double) => double.simplify(steps),
@@ -90,7 +85,7 @@ impl Simplify for Expr {
 
 macro_rules! trig_simplify {
     ($inv:ident, $fn:ident, $expr:ident, $self:ident, $steps:ident) => {
-        match $expr.node() {
+        match *$expr.node() {
             Node::Const(qty) => Scalar::from(qty.value().$fn()).into(),
             Node::Single(Single::$inv(x)) => x.simplify($steps),
             _ => $self.with_arg($self.arg().simplify($steps)).into(),
@@ -129,22 +124,22 @@ impl Simplify for Double {
                 if let Node::Double(Double::Pow {
                     base: inner_base,
                     exp: inner_exp,
-                }) = base.node()
-                    && let Node::Const(exp) = exp.node()
-                    && let Node::Const(inner_exp) = inner_exp.node()
+                }) = *base.node()
+                    && let Node::Const(exp) = *exp.node()
+                    && let Node::Const(inner_exp) = *inner_exp.node()
                     && exp.value().is_integer()
                     && inner_exp.value().is_integer()
                 {
                     (inner_base ^ (exp * inner_exp)).simplify(steps)
-                } else if let Node::Const(qty) = exp.node()
+                } else if let Node::Const(qty) = *exp.node()
                     && qty.value().is_zero()
                 {
                     (1.0).into()
-                } else if let Node::Const(qty) = exp.node()
+                } else if let Node::Const(qty) = *exp.node()
                     && qty.value().is_one()
                 {
                     base
-                } else if let Node::Const(qty) = base.node()
+                } else if let Node::Const(qty) = *base.node()
                     && qty.value().is_one()
                 {
                     (1.0).into()
@@ -169,8 +164,8 @@ impl Simplify for Variadic {
             /* -------------------------------------------------------------------------- */
             // joins coefficients: 2x + x -> 3x
             if self.is_add()
-                && let Node::Variadic(Variadic::Mul(terms)) = term.node()
-                && let (consts, exprs) = separate_consts(terms)
+                && let Node::Variadic(Variadic::Mul(ref terms)) = *term.node()
+                && let (consts, exprs) = separate_consts(terms.iter().copied())
                 && let Ok(coef) = consts.exactly_one()
             {
                 *groupings
@@ -179,13 +174,13 @@ impl Simplify for Variadic {
             /* -------------------------------------------------------------------------- */
             // joins integer powers -> x^2 * x^3 -> x^5
             } else if self.is_mul()
-                && let Node::Double(Double::Pow { base, exp }) = term.node()
-                && let Node::Const(exp) = exp.node()
+                && let Node::Double(Double::Pow { base, exp }) = *term.node()
+                && let Node::Const(exp) = *exp.node()
                 && exp.value().is_integer()
             {
-                if let Node::Variadic(Variadic::Mul(terms)) = base.node() {
+                if let Node::Variadic(Variadic::Mul(ref terms)) = *base.node() {
                     for term in terms {
-                        *groupings.entry(term).or_insert(0.0.into()) +=
+                        *groupings.entry(*term).or_insert(0.0.into()) +=
                             exp.value();
                     }
                 } else {
@@ -201,19 +196,29 @@ impl Simplify for Variadic {
         let mut aggregated: Vec<Expr> = match self {
             Variadic::Add(_) => groupings
                 .into_iter()
-                .map(
-                    |(base, coef)| {
-                        if coef == 1.0.into() { base } else { base * coef }
-                    },
-                )
+                .map(|(base, coef)| {
+                    if coef == 1.0.into() {
+                        base
+                    } else if coef == 0.0.into() {
+                        0.0.into()
+                    } else {
+                        base * coef
+                    }
+                    .normalize()
+                })
                 .collect(),
             Variadic::Mul(_) => groupings
                 .into_iter()
-                .map(
-                    |(base, exp)| {
-                        if exp == 1.0.into() { base } else { base ^ exp }
-                    },
-                )
+                .map(|(base, exp)| {
+                    if exp == 1.0.into() {
+                        base
+                    } else if exp == 0.0.into() {
+                        1.0.into()
+                    } else {
+                        base ^ exp
+                    }
+                    .normalize()
+                })
                 .collect(),
         };
 
@@ -247,13 +252,17 @@ impl Simplify for Variadic {
                 panic!()
             };
 
-            let mut factor_table = Vec::<(HashMap<Expr, f64>, f64)>::new();
+            let mut factor_table =
+                Vec::<(HashMap<Expr, f64>, f64)>::with_capacity(
+                    aggregated.len(),
+                );
 
             for term in terms {
-                match term.normalize().node() {
+                match &*term.node() {
                     Node::Variadic(Variadic::Mul(t)) => {
-                        let mut map = HashMap::new();
-                        let (const_factors, factors) = separate_consts(t);
+                        let mut map = HashMap::with_capacity(t.len());
+                        let (const_factors, factors) =
+                            separate_consts(t.iter().copied());
 
                         let Ok(const_factor) = const_factors
                             .at_most_one()
@@ -263,9 +272,9 @@ impl Simplify for Variadic {
                         };
 
                         for fac in factors {
-                            match fac.node() {
+                            match *fac.node() {
                                 Node::Double(Double::Pow { base, exp })
-                                    if let Node::Const(exp) = exp.node()
+                                    if let Node::Const(exp) = *exp.node()
                                         && exp.value().is_integer() =>
                                 {
                                     *map.entry(base).or_insert(0.0) +=
@@ -285,11 +294,11 @@ impl Simplify for Variadic {
                         }
                     }
                     Node::Double(Double::Pow { base, exp })
-                        if let Node::Const(exp) = exp.node()
+                        if let Node::Const(exp) = *exp.node()
                             && exp.value().is_integer() =>
                     {
                         factor_table
-                            .push((hashmap!(base => exp.value().re), 1.0))
+                            .push((hashmap!(*base => exp.value().re), 1.0))
                     }
                     Node::Const(_) => unreachable!(),
                     _ => factor_table.push((hashmap!(term => 1.0), 1.0)),
@@ -369,10 +378,10 @@ impl Simplify for Variadic {
 }
 
 pub fn separate_consts(
-    terms: impl IntoIterator<Item = Expr> + Clone,
+    terms: impl Iterator<Item = Expr> + Clone,
 ) -> (impl Iterator<Item = Quantity>, impl Iterator<Item = Expr>) {
     (
-        terms.clone().into_iter().filter_map(|expr| match expr.node() {
+        terms.clone().into_iter().filter_map(|expr| match *expr.node() {
             Node::Const(qty) => Some(qty),
             _ => None,
         }),

@@ -1,6 +1,10 @@
-use std::fmt::{Display, Write};
+use std::{
+    fmt::{Display, Write},
+    hash::Hash,
+};
 
 use itertools::Itertools;
+use ordered_float::OrderedFloat;
 use thiserror::Error;
 
 use crate::{
@@ -81,13 +85,23 @@ pub struct Dimension {
 ///
 /// Order is preserved during compositions, and different orders of the same compositions are not Eq,
 /// but order is ignored during checking, and only the equivalence is taken into account.
-#[derive(PartialEq, Clone, Copy, Debug)]
+#[derive(PartialEq, Clone, Copy, Debug, Hash, Eq)]
 #[allow(non_snake_case)]
 pub enum Unit {
-    Base { symbol: &'static str, dimension: Dimension },
-    Derived { symbol: &'static str, base: &'static [(Unit, i8)] },
+    Base {
+        symbol: &'static str,
+        dimension: Dimension,
+    },
+    Derived {
+        symbol: &'static str,
+        base: &'static [(Unit, i8)],
+    },
     Composed(Handle<Composition>),
-    Scaled { symbol: &'static str, base: &'static Unit, scale: f64 },
+    Scaled {
+        symbol: &'static str,
+        base: &'static Unit,
+        scale: OrderedFloat<f64>,
+    },
     Unitless,
 }
 
@@ -109,7 +123,7 @@ impl Quantity {
         loop {
             let normalized = match current_unit {
                 Unit::Scaled { base, scale, .. } => {
-                    current_val *= scale;
+                    current_val *= scale.0;
                     *base
                 }
                 Unit::Composed(id) => {
@@ -227,8 +241,8 @@ impl Unit {
             return *unit;
         }
 
-        if let Some((existing_id, _)) = COMPOSITIONS.find(|_, c| **c == comp) {
-            return Unit::Composed(existing_id);
+        if let Some(existing) = COMPOSITIONS.handle_of(&comp) {
+            return Unit::Composed(existing);
         }
 
         let id = COMPOSITIONS.insert(comp);
@@ -357,3 +371,13 @@ impl Display for Quantity {
         Ok(())
     }
 }
+
+impl Hash for Quantity {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        OrderedFloat(self.0.re).hash(state);
+        OrderedFloat(self.0.im).hash(state);
+        self.1.hash(state);
+    }
+}
+
+impl Eq for Quantity {}

@@ -26,7 +26,8 @@ pub trait Normalize {
     fn normalize(&self) -> Expr;
 
     /// Returns the rank of this expression, not considering its children.
-    /// In this context, rank defines the sorting ordedr during normalization.
+    /// In this context, rank defines the sorting order during normalization.
+    /// Dont confuse this with the rank operation, which returns the rank of a tensor.
     fn rank(&self) -> usize;
 }
 
@@ -36,9 +37,11 @@ impl Normalize for Variadic {
     fn normalize(&self) -> Expr {
         let normalized = self.operands_ref().iter().map(Expr::normalize);
 
-        let flattened = normalized.flat_map(|expr| match expr.node() {
-            Node::Variadic(op) if discriminant(&op) == discriminant(&self) => {
-                op.operands()
+        let flattened = normalized.flat_map(|expr| match *expr.node() {
+            Node::Variadic(ref op)
+                if discriminant(op) == discriminant(self) =>
+            {
+                op.clone().operands()
             }
             _ => vec![expr],
         });
@@ -177,7 +180,7 @@ impl Normalize for Double {
 
 impl Normalize for Expr {
     fn normalize(&self) -> Self {
-        match self.node() {
+        match &*self.node() {
             Node::Symbol(_) => *self,
             Node::Const(_) => *self,
             Node::Variadic(variadic) => variadic.normalize(),
@@ -188,7 +191,7 @@ impl Normalize for Expr {
     }
 
     fn rank(&self) -> usize {
-        match self.node() {
+        match *self.node() {
             Node::Symbol(_) => 0,
             Node::Const(_) => 1,
             Node::Single(_) => 2,
@@ -202,7 +205,7 @@ impl Normalize for Expr {
 impl Ord for Expr {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.rank().cmp(&other.rank()).then_with(|| {
-            match (self.node(), other.node()) {
+            match (&*self.node(), &*other.node()) {
                 (Node::Symbol(lhs), Node::Symbol(rhs)) => lhs.cmp(&rhs),
                 (Node::Const(lhs), Node::Const(rhs)) => {
                     let lhs = lhs.value();

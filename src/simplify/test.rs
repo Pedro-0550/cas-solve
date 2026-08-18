@@ -11,10 +11,18 @@ fn factoring() {
     let x = Symbol::new("x");
     let y = Symbol::new("y");
 
-    let start = Instant::now();
-    let simp =
-        (x + x * y + (1245 * x * y * (cos(x ^ 2) ^ 2) * sinh(y) * log(x, y)))
-            .simplify(&mut None);
+    let expr =
+        x + x * y + (1245 * x * y * (cos(x ^ 2) ^ 2) * sinh(y) * log(x, y));
 
-    panic!("{}, in {} ms", simp, start.elapsed().as_millis())
+    let start = Instant::now();
+    let n = 1;
+
+    for _ in 0..n {
+        std::hint::black_box(expr.clone().simplify(&mut None));
+    }
+
+    let elapsed = start.elapsed();
+
+    println!("n simplifications: {:?}", elapsed);
+    panic!("per simplification: {:?}", elapsed / n);
 }

@@ -9,7 +9,7 @@ use derive_more::{From, IsVariant, TryUnwrap, Unwrap};
 use itertools::Itertools;
 
 use crate::{
-    core::arena::{Arena, Handle},
+    core::arena::{Arena, ArenaRef, Handle},
     dimension::Quantity,
     expr::ops::{Double, Matrix, Single, Variadic},
     simplify::{Simplify, normal::Normalize},
@@ -30,7 +30,9 @@ mod test;
 
 /* ---------------------------------- ENUMS --------------------------------- */
 
-#[derive(PartialEq, Clone, Debug, From, IsVariant, Unwrap, TryUnwrap)]
+#[derive(
+    PartialEq, Clone, Debug, From, IsVariant, Unwrap, TryUnwrap, Hash, Eq,
+)]
 pub enum Node {
     Symbol(Symbol),
     Const(Quantity),
@@ -114,16 +116,16 @@ impl Shape {
 }
 
 impl Expr {
-    pub fn node(&self) -> Node {
-        NODES.get_cloned(self.0).unwrap()
+    pub fn node(&self) -> ArenaRef<'_, Node> {
+        NODES.get(self.0).unwrap()
     }
 
     /// Returns the total number of nodes in this expression
     pub fn size(&self) -> usize {
-        match self.node() {
+        match *self.node() {
             Node::Symbol(_symbol) => 1,
             Node::Const(_quantity) => 1,
-            Node::Variadic(variadic) => {
+            Node::Variadic(ref variadic) => {
                 variadic.operands_ref().iter().map(|x| x.size()).sum::<usize>()
                     + 1
             }
@@ -131,15 +133,15 @@ impl Expr {
             Node::Double(double) => {
                 double.args()[0].size() + double.args()[1].size() + 1
             }
-            Node::Matrix(matrix) => {
+            Node::Matrix(ref matrix) => {
                 matrix.elements().iter().map(|x| x.size()).sum::<usize>() + 1
             }
         }
     }
 
     pub fn substitute(self, bindings: &[Binding]) -> Self {
-        match self.node() {
-            Node::Variadic(op) => op
+        match *self.node() {
+            Node::Variadic(ref op) => op
                 .with_operands(
                     op.operands_ref()
                         .iter()
@@ -166,7 +168,7 @@ impl Expr {
                 }
             }
 
-            Node::Matrix(m) => {
+            Node::Matrix(ref m) => {
                 Node::Matrix(m.map(|el| el.substitute(bindings))).into()
             }
 
@@ -177,21 +179,21 @@ impl Expr {
 
 impl Shaped for Expr {
     fn shape(&self) -> Shape {
-        match self.node() {
+        match *self.node() {
             Node::Symbol(symbol) => symbol.shape(),
             Node::Const(_) => Shape::SCALAR,
-            Node::Variadic(variadic) => variadic.shape(),
+            Node::Variadic(ref variadic) => variadic.shape(),
             Node::Single(single) => single.shape(),
             Node::Double(double) => double.shape(),
-            Node::Matrix(matrix) => matrix.shape(),
+            Node::Matrix(ref matrix) => matrix.shape(),
         }
     }
 }
 
 impl Node {
     pub fn register(self) -> Expr {
-        if let Some((existing_id, _)) = NODES.find(|_, n| *n == self) {
-            return Expr(existing_id);
+        if let Some(existing) = NODES.handle_of(&self) {
+            return Expr(existing);
         }
 
         let id = NODES.insert(self);
@@ -201,26 +203,26 @@ impl Node {
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.node() {
+        match *self.node() {
             Node::Const(qty) => <Quantity as Display>::fmt(&qty, f),
             Node::Double(op) => <Double as Display>::fmt(&op, f),
             Node::Single(op) => <Single as Display>::fmt(&op, f),
-            Node::Variadic(op) => <Variadic as Display>::fmt(&op, f),
+            Node::Variadic(ref op) => <Variadic as Display>::fmt(&op, f),
             Node::Symbol(symb) => <Symbol as Display>::fmt(&symb, f),
-            Node::Matrix(_m) => todo!(),
+            Node::Matrix(ref _m) => todo!(),
         }
     }
 }
 
 impl Debug for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self.node() {
+        match *self.node() {
             Node::Const(qty) => <Quantity as Display>::fmt(&qty, f),
             Node::Double(op) => write!(f, "{:?}", op),
             Node::Single(op) => write!(f, "{:?}", op),
-            Node::Variadic(op) => write!(f, "{:?}", op),
+            Node::Variadic(ref op) => write!(f, "{:?}", op),
             Node::Symbol(symb) => <Symbol as Display>::fmt(&symb, f),
-            Node::Matrix(_m) => todo!(),
+            Node::Matrix(ref _m) => todo!(),
         }
     }
 }

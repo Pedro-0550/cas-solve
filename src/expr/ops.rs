@@ -18,13 +18,15 @@ use crate::{
     symbol::constants::e,
 };
 
-#[derive(PartialEq, Clone, Debug, IsVariant, TryUnwrap, Unwrap)]
+#[derive(PartialEq, Clone, Debug, IsVariant, TryUnwrap, Unwrap, Hash, Eq)]
 pub enum Variadic {
     Add(Vec<Expr>),
     Mul(Vec<Expr>),
 }
 
-#[derive(PartialEq, Clone, Debug, Copy, IsVariant, TryUnwrap, Unwrap)]
+#[derive(
+    PartialEq, Clone, Debug, Copy, IsVariant, TryUnwrap, Unwrap, Hash, Eq,
+)]
 pub enum Single {
     Sin(Expr),
     Cos(Expr),
@@ -49,7 +51,7 @@ pub enum Single {
     Norm(Expr),
 }
 
-#[derive(PartialEq, Clone, Debug, Copy, IsVariant)]
+#[derive(PartialEq, Clone, Debug, Copy, IsVariant, Hash, Eq)]
 pub enum Double {
     Pow { base: Expr, exp: Expr },
     Log { base: Expr, arg: Expr },
@@ -57,7 +59,7 @@ pub enum Double {
 }
 
 /// Row-major matrix type
-#[derive(PartialEq, Clone, Debug)]
+#[derive(PartialEq, Clone, Debug, Hash, Eq)]
 pub struct Matrix {
     shape: Shape,
     elements: Vec<Expr>,
@@ -255,7 +257,7 @@ impl Display for Single {
         match self {
             Single::Transpose(expr) => {
                 let parenthesize = matches!(
-                    expr.node(),
+                    *expr.node(),
                     Node::Double(Double::Pow { .. }) | Node::Variadic(_)
                 );
 
@@ -274,7 +276,7 @@ impl Display for Double {
         match self {
             Double::Pow { base, exp } => {
                 let parenthesize_base = !matches!(
-                    base.node(),
+                    *base.node(),
                     Node::Symbol(_)
                         | Node::Const(_)
                         | Node::Single(_)
@@ -283,11 +285,11 @@ impl Display for Double {
                         )
                 );
                 let parenthesize_exp =
-                    !matches!(exp.node(), Node::Symbol(_) | Node::Const(_));
+                    !matches!(*exp.node(), Node::Symbol(_) | Node::Const(_));
 
                 write_enclosed(base, f, parenthesize_base)?;
 
-                if let Node::Const(x) = exp.node()
+                if let Node::Const(x) = *exp.node()
                     && x.unit() == Unit::Unitless
                     && let value = x.value()
                     && value.is_integer()
@@ -329,8 +331,10 @@ impl Display for Variadic {
         match self {
             Variadic::Add(terms) => {
                 for (i, term) in terms.iter().enumerate() {
-                    if let Node::Variadic(Variadic::Mul(terms)) = term.node()
-                        && let (mut consts, exprs) = separate_consts(terms)
+                    if let Node::Variadic(Variadic::Mul(ref terms)) =
+                        *term.node()
+                        && let (mut consts, exprs) =
+                            separate_consts(terms.iter().copied())
                         && let Ok(coef) = consts.by_ref().exactly_one()
                         && coef.value().is_real()
                         && coef.value().re < 0.0
@@ -359,7 +363,7 @@ impl Display for Variadic {
             Variadic::Mul(terms) => {
                 fn joinable(expr: &Expr) -> bool {
                     matches!(
-                        expr.node(),
+                        *expr.node(),
                         Node::Symbol(_)
                             | Node::Const(_)
                             | Node::Double(Double::Pow { .. })
@@ -373,7 +377,7 @@ impl Display for Variadic {
                     ) = terms.iter().partition(|x| x.shape().is_rect());
 
                     scalar_part.sort_by(|a, b| {
-                        if matches!(a.node(), Node::Const(_)) {
+                        if matches!(*a.node(), Node::Const(_)) {
                             return Ordering::Less;
                         }
 
@@ -392,10 +396,10 @@ impl Display for Variadic {
                 let (denom, num): (Vec<Expr>, Vec<Expr>) =
                     terms.iter().partition(|expr| {
                         matches!(
-                            expr.node(),
+                            *expr.node(),
                             Node::Double(Double::Pow { exp, .. })
                             if matches!(
-                                exp.node(),
+                                *exp.node(),
                                 Node::Const(qty)
                                 if qty.value().im == 0.0
                                     && qty.value().re < 0.0
@@ -406,8 +410,10 @@ impl Display for Variadic {
                 let (denom, num) = (sort_terms(&denom), sort_terms(&num));
 
                 for (i, term) in num.iter().enumerate() {
-                    let parenthesize =
-                        matches!(term.node(), Node::Variadic(Variadic::Add(_)));
+                    let parenthesize = matches!(
+                        *term.node(),
+                        Node::Variadic(Variadic::Add(_))
+                    );
 
                     if i > 0
                         && num
@@ -449,9 +455,9 @@ impl Display for Variadic {
                     }
 
                     if !num.is_empty() {
-                        term = match term.node() {
+                        let new_term = match *term.node() {
                             Node::Double(Double::Pow { base, exp }) => {
-                                let exp = match exp.node() {
+                                let exp = match *exp.node() {
                                     Node::Const(qty) => qty,
                                     _ => unreachable!(
                                         "Expression must be a Pow with negative const exp in order to be on the denominator"
@@ -472,11 +478,14 @@ impl Display for Variadic {
                             _ => unreachable!(
                                 "Expression must be a Pow with negative const exp in order to be on the denominator"
                             ),
-                        }
+                        };
+                        term = new_term;
                     }
 
-                    let parenthesize =
-                        matches!(term.node(), Node::Variadic(Variadic::Add(_)));
+                    let parenthesize = matches!(
+                        *term.node(),
+                        Node::Variadic(Variadic::Add(_))
+                    );
 
                     write_enclosed(term, f, parenthesize)?;
 

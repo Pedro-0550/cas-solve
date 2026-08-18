@@ -27,7 +27,7 @@ static CONSTANTS_REGISTERED: AtomicBool = AtomicBool::new(false);
 //     next_id: SymbolId,
 // }
 
-#[derive(Clone)]
+#[derive(Clone, Hash, Eq, PartialEq)]
 pub struct SymbolInfo {
     name: String,
     unit: Unit,
@@ -44,10 +44,6 @@ impl Symbol {
         if !CONSTANTS_REGISTERED.load(Ordering::SeqCst) {
             constants::register();
             CONSTANTS_REGISTERED.store(true, Ordering::SeqCst);
-        }
-
-        if let Some((id, _)) = SYMBOLS.find(|_k, v| &*v.name == name) {
-            return Symbol(id);
         }
 
         let handle = SYMBOLS.insert(SymbolInfo {

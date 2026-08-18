@@ -11,3 +11,4 @@ paste = "1.0"
 derive_more = { version = "2", features = ["from", "deref", "deref_mut", "unwrap", "try_unwrap", "is_variant", "into",] }
 float_eq = "1.0"
 maplit = "1.0"
+ordered-float = "5.3"
