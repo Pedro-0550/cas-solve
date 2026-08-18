@@ -10,25 +10,21 @@ use std::{
     },
 };
 
+use dashmap::{
+    DashMap,
+    mapref::{
+        multiple::RefMulti,
+        one::{Ref, RefMut},
+    },
+};
+
 /* --------------------------------- STRUCTS -------------------------------- */
 
 pub struct Arena<T: Hash + Eq> {
-    maps: LazyLock<RwLock<(HashMap<Handle<T>, T>, HashMap<T, Handle<T>>)>>,
+    element_to_handle: LazyLock<DashMap<T, Handle<T>>>,
+    handle_to_element: LazyLock<DashMap<Handle<T>, T>>,
 
     next_id: AtomicUsize,
-}
-
-pub struct ArenaRef<'a, T> {
-    guard: RwLockReadGuard<'a, (HashMap<Handle<T>, T>, HashMap<T, Handle<T>>)>,
-    id: Handle<T>,
-}
-
-impl<'a, T: Hash + Eq> Deref for ArenaRef<'a, T> {
-    type Target = T;
-
-    fn deref(&self) -> &Self::Target {
-        self.guard.0.get(&self.id).expect("THE HANDLE IS GON")
-    }
 }
 
 pub struct Handle<T>(pub(crate) usize, PhantomData<T>);
@@ -44,9 +40,8 @@ where
 {
     pub const fn new() -> Self {
         Self {
-            maps: LazyLock::new(|| {
-                RwLock::new((HashMap::new(), HashMap::new()))
-            }),
+            element_to_handle: LazyLock::new(|| DashMap::new()),
+            handle_to_element: LazyLock::new(|| DashMap::new()),
             next_id: AtomicUsize::new(0),
         }
     }
@@ -54,10 +49,9 @@ where
     pub fn insert(&self, val: T) -> Handle<T> {
         let id =
             Handle(self.next_id.fetch_add(1, Ordering::Relaxed), PhantomData);
-        let mut maps = self.maps.write().unwrap();
 
-        maps.0.insert(id, val.clone());
-        maps.1.insert(val, id);
+        self.handle_to_element.insert(id, val.clone());
+        self.element_to_handle.insert(val, id);
 
         id
     }
@@ -65,52 +59,40 @@ where
     pub(crate) fn insert_at(&self, id: usize, val: T) {
         let handle = Handle::new(id);
 
-        let mut maps = self.maps.write().unwrap();
-
-        maps.0.insert(handle, val.clone());
-        maps.1.insert(val, handle);
+        self.handle_to_element.insert(handle, val.clone());
+        self.element_to_handle.insert(val, handle);
 
         self.next_id.fetch_max(id + 1, Ordering::Relaxed);
     }
 
     pub fn get_cloned(&self, id: Handle<T>) -> Option<T> {
-        let maps = self.maps.read().unwrap();
-
-        maps.0.get(&id).cloned()
+        self.handle_to_element.get(&id).map(|x| x.clone())
     }
 
-    pub fn get(&self, id: Handle<T>) -> Option<ArenaRef<'_, T>> {
-        let guard = self.maps.read().unwrap();
-
-        if guard.0.contains_key(&id) {
-            Some(ArenaRef { guard, id })
-        } else {
-            None
-        }
+    pub fn get(&self, id: Handle<T>) -> Option<Ref<'_, Handle<T>, T>> {
+        self.handle_to_element.get(&id)
     }
 
     pub fn handle_of(&self, val: &T) -> Option<Handle<T>> {
-        let maps = self.maps.read().unwrap();
-
-        maps.1.get(val).copied()
+        self.element_to_handle.get(val).map(|x| x.clone())
     }
 
-    pub fn modify(&self, id: Handle<T>, f: impl FnOnce(&mut T) -> ()) {
-        let mut maps = self.maps.write().unwrap();
-
-        maps.0.get_mut(&id).map(f);
+    pub fn modify(
+        &self,
+        id: Handle<T>,
+        f: impl FnOnce(RefMut<'_, Handle<T>, T>) -> (),
+    ) {
+        self.handle_to_element.get_mut(&id).map(f);
     }
 
     pub fn find(
         &self,
         mut f: impl FnMut(Handle<T>, &T) -> bool,
     ) -> Option<(Handle<T>, T)> {
-        let maps = self.maps.read().unwrap();
-
-        maps.0
+        self.handle_to_element
             .iter()
-            .find(|(handle, value)| f(**handle, value))
-            .map(|(&handle, value)| (handle, value.clone()))
+            .find(|r| f(*r.key(), r.value()))
+            .map(|r| (*r.key(), r.value().clone()))
     }
 }
 

@@ -5,6 +5,7 @@
 #![feature(generic_atomic)]
 #![feature(iter_map_windows)]
 #![feature(const_try)]
+#![feature(inherent_associated_types)]
 
 use num::Complex;
 

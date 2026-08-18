@@ -12,3 +12,4 @@ derive_more = { version = "2", features = ["from", "deref", "deref_mut", "unwrap
 float_eq = "1.0"
 maplit = "1.0"
 ordered-float = "5.3"
+dashmap = "6"

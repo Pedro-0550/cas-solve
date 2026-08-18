@@ -5,11 +5,12 @@ use std::{
     num::NonZero,
 };
 
+use dashmap::mapref::one::Ref;
 use derive_more::{From, IsVariant, TryUnwrap, Unwrap};
 use itertools::Itertools;
 
 use crate::{
-    core::arena::{Arena, ArenaRef, Handle},
+    core::arena::{Arena, Handle},
     dimension::Quantity,
     expr::ops::{Double, Matrix, Single, Variadic},
     simplify::{Simplify, normal::Normalize},
@@ -116,7 +117,7 @@ impl Shape {
 }
 
 impl Expr {
-    pub fn node(&self) -> ArenaRef<'_, Node> {
+    pub fn node(&self) -> Ref<'_, Handle<Node>, Node> {
         NODES.get(self.0).unwrap()
     }
 

@@ -69,7 +69,7 @@ impl Symbol {
     }
 
     pub fn set_unit(self, unit: Unit) -> Self {
-        SYMBOLS.modify(self.0, |i| i.unit = unit);
+        SYMBOLS.modify(self.0, |mut i| i.unit = unit);
         self
     }
 
@@ -78,7 +78,7 @@ impl Symbol {
     }
 
     pub fn set_shape(self, shape: Shape) -> Self {
-        SYMBOLS.modify(self.0, |i| i.shape = shape);
+        SYMBOLS.modify(self.0, |mut i| i.shape = shape);
         self
     }
 
