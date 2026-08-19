@@ -14,6 +14,8 @@ fn factoring() {
     let expr =
         x + x * y + (1245 * x * y * (cos(x ^ 2) ^ 2) * sinh(y) * log(x, y));
 
+    std::hint::black_box(expr.clone().simplify(&mut None));
+
     let start = Instant::now();
     let n = 100;
 

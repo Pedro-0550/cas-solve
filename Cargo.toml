@@ -13,3 +13,4 @@ float_eq = "1.0"
 maplit = "1.0"
 ordered-float = "5.3"
 dashmap = "6"
+moka = { version = "0.12", features = ["sync"] }

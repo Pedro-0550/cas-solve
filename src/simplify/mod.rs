@@ -1,7 +1,10 @@
-use std::{array, collections::HashMap, ops::Mul};
+use std::{
+    array, collections::HashMap, ops::Mul, sync::LazyLock, time::Duration,
+};
 
 use itertools::Itertools;
 use maplit::hashmap;
+use moka::sync::Cache;
 use num::{One, Zero, complex::ComplexFloat};
 
 use crate::{
@@ -29,6 +32,18 @@ pub trait Simplify {
     // fn range(&self) -> Set;
 }
 
+/* -------------------------------- CONSTANTS ------------------------------- */
+
+// const CACHE_CAPACITY: u64 = 4096;
+// const CACHE: LazyLock<Cache<Expr, Expr>> = LazyLock::new(|| {
+//     Cache::builder()
+//         .initial_capacity(CACHE_CAPACITY as usize / 8)
+//         .max_capacity(CACHE_CAPACITY)
+//         .time_to_live(Duration::from_weeks(1))
+//         .time_to_idle(Duration::from_weeks(1))
+//         .build()
+// });
+
 /* --------------------------------- STRUCTS -------------------------------- */
 
 enum SimplificationStep {
@@ -49,24 +64,34 @@ pub struct Step {
 
 /* ---------------------------------- IMPLS --------------------------------- */
 
+impl Expr {
+    fn simplify_inner(&self, steps: &mut Option<Vec<Step>>) -> Self {
+        match self.node() {
+            Node::Variadic(variadic) => variadic.simplify(steps),
+            Node::Single(single) => single.simplify(steps),
+            Node::Double(double) => double.simplify(steps),
+            Node::Matrix(matrix) => todo!(),
+            _ => self.clone(),
+        }
+        .normalize()
+    }
+}
+
 impl Simplify for Expr {
     fn simplify(&self, steps: &mut Option<Vec<Step>>) -> Expr {
         if self.node().is_symbol() || self.node().is_const() {
             return self.clone();
         }
 
-        let mut step = self.normalize();
+        let initial = self.normalize();
+        let mut step = initial.clone();
+
+        // if let Some(hit) = CACHE.get(&step) {
+        //     return hit;
+        // }
 
         loop {
-            let simplified = match step.node() {
-                Node::Variadic(variadic) => variadic.simplify(steps),
-                Node::Single(single) => single.simplify(steps),
-                Node::Double(double) => double.simplify(steps),
-                Node::Matrix(matrix) => todo!(),
-                _ => step.clone(),
-            }
-            .normalize();
-            println!("{}", simplified);
+            let simplified = step.simplify_inner(steps);
 
             if simplified == step {
                 break;
@@ -74,6 +99,8 @@ impl Simplify for Expr {
 
             step = simplified;
         }
+
+        // CACHE.insert(initial, step.clone());
 
         step
     }
@@ -88,9 +115,9 @@ macro_rules! trig_simplify {
         match $expr.node() {
             Node::Const(qty) => Scalar::from(qty.value().$fn()).into(),
             Node::Single(op) if let Single::$inv(ref x) = *op => {
-                x.simplify($steps)
+                x.simplify_inner($steps)
             }
-            _ => $self.with_arg($self.arg().simplify($steps)).into(),
+            _ => $self.with_arg($self.arg().simplify_inner($steps)).into(),
         }
     };
 }
@@ -110,7 +137,7 @@ impl Simplify for Single {
             Single::Arg(expr) => todo!(),
             Single::Det(expr) => todo!(),
             Single::Norm(expr) => todo!(),
-            _ => self.with_arg(self.arg().simplify(steps)).into(),
+            _ => self.with_arg(self.arg().simplify_inner(steps)).into(),
         }
     }
 }
@@ -118,7 +145,7 @@ impl Simplify for Single {
 impl Simplify for Double {
     fn simplify(&self, steps: &mut Option<Vec<Step>>) -> Expr {
         let simplified = self
-            .with_args(array::from_fn(|i| self.args()[i].simplify(steps)))
+            .with_args(array::from_fn(|i| self.args()[i].simplify_inner(steps)))
             .into();
 
         match &simplified {
@@ -132,7 +159,7 @@ impl Simplify for Double {
                     && exp.value().is_integer()
                     && inner_exp.value().is_integer()
                 {
-                    (inner_base ^ (*exp * *inner_exp)).simplify(steps)
+                    (inner_base ^ (*exp * *inner_exp)).simplify_inner(steps)
                 } else if let Node::Const(qty) = exp.node()
                     && qty.value().is_zero()
                 {
@@ -157,7 +184,7 @@ impl Simplify for Double {
 impl Simplify for Variadic {
     fn simplify(&self, steps: &mut Option<Vec<Step>>) -> Expr {
         let simplified =
-            self.operands().iter().map(|expr| expr.simplify(steps));
+            self.operands().iter().map(|expr| expr.simplify_inner(steps));
 
         let mut groupings =
             HashMap::<Expr, Scalar>::with_capacity(self.operands().len());
@@ -309,8 +336,6 @@ impl Simplify for Variadic {
                     _ => factor_table.push((hashmap!(term => 1.0), 1.0)),
                 }
             }
-
-            println!("{:#?}", factor_table);
 
             // TODO: elegant solution to get rid of this clone
             let (factored_terms, factored_const) = factor_table
