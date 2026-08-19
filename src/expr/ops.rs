@@ -4,6 +4,7 @@ use std::{
     iter::once,
     num::NonZero,
     ops::Index,
+    rc::Rc,
 };
 
 use derive_more::{IsVariant, TryUnwrap, Unwrap};
@@ -24,9 +25,7 @@ pub enum Variadic {
     Mul(Vec<Expr>),
 }
 
-#[derive(
-    PartialEq, Clone, Debug, Copy, IsVariant, TryUnwrap, Unwrap, Hash, Eq,
-)]
+#[derive(PartialEq, Clone, Debug, IsVariant, TryUnwrap, Unwrap, Hash, Eq)]
 pub enum Single {
     Sin(Expr),
     Cos(Expr),
@@ -51,7 +50,7 @@ pub enum Single {
     Norm(Expr),
 }
 
-#[derive(PartialEq, Clone, Debug, Copy, IsVariant, Hash, Eq)]
+#[derive(PartialEq, Clone, Debug, IsVariant, Hash, Eq)]
 pub enum Double {
     Pow { base: Expr, exp: Expr },
     Log { base: Expr, arg: Expr },
@@ -111,14 +110,21 @@ impl Variadic {
         }
     }
 
-    pub fn operands_ref(&self) -> &Vec<Expr> {
+    pub fn operands(&self) -> &Vec<Expr> {
         match self {
             Variadic::Add(ops) => ops,
             Variadic::Mul(ops) => ops,
         }
     }
 
-    pub fn operands(self) -> Vec<Expr> {
+    pub fn operands_mut(&mut self) -> &mut Vec<Expr> {
+        match self {
+            Variadic::Add(ops) => ops,
+            Variadic::Mul(ops) => ops,
+        }
+    }
+
+    pub fn into_operands(self) -> Vec<Expr> {
         match self {
             Variadic::Add(ops) => ops,
             Variadic::Mul(ops) => ops,
@@ -169,7 +175,51 @@ impl Single {
         }
     }
 
-    pub fn arg(self) -> Expr {
+    pub fn into_arg(self) -> Expr {
+        match self {
+            Single::Sin(arg) => arg,
+            Single::Cos(arg) => arg,
+            Single::Tan(arg) => arg,
+            Single::Asin(arg) => arg,
+            Single::Acos(arg) => arg,
+            Single::Atan(arg) => arg,
+            Single::Sinh(arg) => arg,
+            Single::Cosh(arg) => arg,
+            Single::Tanh(arg) => arg,
+            Single::Asinh(arg) => arg,
+            Single::Acosh(arg) => arg,
+            Single::Atanh(arg) => arg,
+            Single::Transpose(arg) => arg,
+            Single::Conj(arg) => arg,
+            Single::Arg(arg) => arg,
+            Single::Det(arg) => arg,
+            Single::Norm(arg) => arg,
+        }
+    }
+
+    pub fn arg(&self) -> &Expr {
+        match self {
+            Single::Sin(arg) => arg,
+            Single::Cos(arg) => arg,
+            Single::Tan(arg) => arg,
+            Single::Asin(arg) => arg,
+            Single::Acos(arg) => arg,
+            Single::Atan(arg) => arg,
+            Single::Sinh(arg) => arg,
+            Single::Cosh(arg) => arg,
+            Single::Tanh(arg) => arg,
+            Single::Asinh(arg) => arg,
+            Single::Acosh(arg) => arg,
+            Single::Atanh(arg) => arg,
+            Single::Transpose(arg) => arg,
+            Single::Conj(arg) => arg,
+            Single::Arg(arg) => arg,
+            Single::Det(arg) => arg,
+            Single::Norm(arg) => arg,
+        }
+    }
+
+    pub fn arg_mut(&mut self) -> &mut Expr {
         match self {
             Single::Sin(arg) => arg,
             Single::Cos(arg) => arg,
@@ -226,14 +276,23 @@ impl Shaped for Single {
 
 impl Double {
     pub fn with_args(&self, args: [Expr; 2]) -> Self {
+        let [a, b] = args;
         match self {
-            Double::Atan2 { .. } => Double::Atan2 { a: args[0], b: args[1] },
-            Double::Log { .. } => Double::Log { base: args[0], arg: args[1] },
-            Double::Pow { .. } => Double::Pow { base: args[0], exp: args[1] },
+            Double::Atan2 { .. } => Double::Atan2 { a, b },
+            Double::Log { .. } => Double::Log { base: a, arg: b },
+            Double::Pow { .. } => Double::Pow { base: a, exp: b },
         }
     }
 
-    pub fn args(self) -> [Expr; 2] {
+    pub fn into_args(self) -> [Expr; 2] {
+        match self {
+            Double::Atan2 { a, b } => [a, b],
+            Double::Log { base, arg } => [base, arg],
+            Double::Pow { base, exp } => [base, exp],
+        }
+    }
+
+    pub fn args(&self) -> [&Expr; 2] {
         match self {
             Double::Atan2 { a, b } => [a, b],
             Double::Log { base, arg } => [base, arg],
@@ -257,7 +316,7 @@ impl Display for Single {
         match self {
             Single::Transpose(expr) => {
                 let parenthesize = matches!(
-                    *expr.node(),
+                    expr.node(),
                     Node::Double(Double::Pow { .. }) | Node::Variadic(_)
                 );
 
@@ -276,7 +335,7 @@ impl Display for Double {
         match self {
             Double::Pow { base, exp } => {
                 let parenthesize_base = !matches!(
-                    *base.node(),
+                    base.node(),
                     Node::Symbol(_)
                         | Node::Const(_)
                         | Node::Single(_)
@@ -285,11 +344,11 @@ impl Display for Double {
                         )
                 );
                 let parenthesize_exp =
-                    !matches!(*exp.node(), Node::Symbol(_) | Node::Const(_));
+                    !matches!(exp.node(), Node::Symbol(_) | Node::Const(_));
 
                 write_enclosed(base, f, parenthesize_base)?;
 
-                if let Node::Const(x) = *exp.node()
+                if let Node::Const(x) = exp.node()
                     && x.unit() == Unit::Unitless
                     && let value = x.value()
                     && value.is_integer()
@@ -331,10 +390,9 @@ impl Display for Variadic {
         match self {
             Variadic::Add(terms) => {
                 for (i, term) in terms.iter().enumerate() {
-                    if let Node::Variadic(Variadic::Mul(ref terms)) =
-                        *term.node()
+                    if let Node::Variadic(Variadic::Mul(terms)) = term.node()
                         && let (mut consts, exprs) =
-                            separate_consts(terms.iter().copied())
+                            separate_consts(terms.iter().cloned())
                         && let Ok(coef) = consts.by_ref().exactly_one()
                         && coef.value().is_real()
                         && coef.value().re < 0.0
@@ -363,21 +421,21 @@ impl Display for Variadic {
             Variadic::Mul(terms) => {
                 fn joinable(expr: &Expr) -> bool {
                     matches!(
-                        *expr.node(),
+                        expr.node(),
                         Node::Symbol(_)
                             | Node::Const(_)
                             | Node::Double(Double::Pow { .. })
                     )
                 }
 
-                fn sort_terms(terms: &Vec<Expr>) -> Vec<Expr> {
+                fn sort_terms<'a>(terms: &Vec<&'a Expr>) -> Vec<&'a Expr> {
                     let (mut mat_part, mut scalar_part): (
-                        Vec<Expr>,
-                        Vec<Expr>,
+                        Vec<&Expr>,
+                        Vec<&Expr>,
                     ) = terms.iter().partition(|x| x.shape().is_rect());
 
                     scalar_part.sort_by(|a, b| {
-                        if matches!(*a.node(), Node::Const(_)) {
+                        if matches!(a.node(), Node::Const(_)) {
                             return Ordering::Less;
                         }
 
@@ -393,13 +451,13 @@ impl Display for Variadic {
                     scalar_part
                 }
 
-                let (denom, num): (Vec<Expr>, Vec<Expr>) =
+                let (denom, num): (Vec<&Expr>, Vec<&Expr>) =
                     terms.iter().partition(|expr| {
                         matches!(
-                            *expr.node(),
+                            expr.node(),
                             Node::Double(Double::Pow { exp, .. })
                             if matches!(
-                                *exp.node(),
+                                exp.node(),
                                 Node::Const(qty)
                                 if qty.value().im == 0.0
                                     && qty.value().re < 0.0
@@ -410,10 +468,8 @@ impl Display for Variadic {
                 let (denom, num) = (sort_terms(&denom), sort_terms(&num));
 
                 for (i, term) in num.iter().enumerate() {
-                    let parenthesize = matches!(
-                        *term.node(),
-                        Node::Variadic(Variadic::Add(_))
-                    );
+                    let parenthesize =
+                        matches!(term.node(), Node::Variadic(Variadic::Add(_)));
 
                     if i > 0
                         && num
@@ -449,26 +505,28 @@ impl Display for Variadic {
                     f.write_char('(')?;
                 }
 
-                for (i, mut term) in denom.clone().into_iter().enumerate() {
+                for (i, mut term) in
+                    denom.iter().by_ref().cloned().cloned().enumerate()
+                {
                     if !joinable(&term) && i != 0 {
                         f.write_char('·')?;
                     }
 
                     if !num.is_empty() {
-                        let new_term = match *term.node() {
+                        let new_term = match term.node() {
                             Node::Double(Double::Pow { base, exp }) => {
-                                let exp = match *exp.node() {
+                                let exp = match exp.node() {
                                     Node::Const(qty) => qty,
                                     _ => unreachable!(
                                         "Expression must be a Pow with negative const exp in order to be on the denominator"
                                     ),
                                 };
 
-                                if exp == -1 {
-                                    base
+                                if exp.value().re == -1.0 {
+                                    base.clone()
                                 } else {
                                     Double::Pow {
-                                        base,
+                                        base: base.clone(),
                                         exp: (exp.value().abs() * exp.unit())
                                             .into(),
                                     }
@@ -482,10 +540,8 @@ impl Display for Variadic {
                         term = new_term;
                     }
 
-                    let parenthesize = matches!(
-                        *term.node(),
-                        Node::Variadic(Variadic::Add(_))
-                    );
+                    let parenthesize =
+                        matches!(term.node(), Node::Variadic(Variadic::Add(_)));
 
                     write_enclosed(term, f, parenthesize)?;
 

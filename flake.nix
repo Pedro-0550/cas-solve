@@ -31,19 +31,6 @@
           packages =
             with pkgs;
             [
-              pkgsCross.avr.buildPackages.gcc
-              pkgsCross.avr.buildPackages.libc
-              pkgsCross.avr.buildPackages.gdb
-              python3Packages.pyserial
-              avrdude
-              gdb
-              ravedude
-              # Emulator
-              simavr
-
-              # Useful inspection tools
-              pkgsCross.avr.buildPackages.binutils
-
               # Build tools
               gnumake
               cmake
@@ -56,7 +43,6 @@
               tmux
 
               stdenv
-              foxglove-studio
 
               pkgsStatic.xz.dev
               lldb

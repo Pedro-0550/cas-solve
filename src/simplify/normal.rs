@@ -35,13 +35,11 @@ pub trait Normalize {
 
 impl Normalize for Variadic {
     fn normalize(&self) -> Expr {
-        let normalized = self.operands_ref().iter().map(Expr::normalize);
+        let normalized = self.operands().iter().map(Expr::normalize);
 
-        let flattened = normalized.flat_map(|expr| match *expr.node() {
-            Node::Variadic(ref op)
-                if discriminant(op) == discriminant(self) =>
-            {
-                op.clone().operands()
+        let flattened = normalized.flat_map(|expr| match expr.into_node() {
+            Node::Variadic(op) if discriminant(&op) == discriminant(self) => {
+                op.into_operands()
             }
             _ => vec![expr],
         });
@@ -53,7 +51,7 @@ impl Normalize for Variadic {
 
         // for term in exprs.into_iter() {
         //     if self.is_add()
-        //         && let Node::Variadic(Variadic::Mul(terms)) = term.node()
+        //         && let Node::Variadic(Variadic::Mul(terms)) = term
         //         && let (consts, exprs) = separate_consts(terms)
         //         && let Ok(coef) = consts.exactly_one()
         //     {
@@ -61,8 +59,8 @@ impl Normalize for Variadic {
         //             .entry(Variadic::Mul(exprs.collect()).into())
         //             .or_insert(0.0.into()) += coef.value();
         //     } else if self.is_mul()
-        //         && let Node::Double(Double::Pow { base, exp }) = term.node()
-        //         && let Node::Const(qty) = exp.node()
+        //         && let Node::Double(Double::Pow { base, exp }) = term
+        //         && let Node::Const(qty) = exp
         //         && qty.value().is_integer()
         //     {
         //         *groupings.entry(base).or_insert(0.0.into()) += qty.value();
@@ -181,8 +179,8 @@ impl Normalize for Double {
 impl Normalize for Expr {
     fn normalize(&self) -> Self {
         match &*self.node() {
-            Node::Symbol(_) => *self,
-            Node::Const(_) => *self,
+            Node::Symbol(_) => self.clone(),
+            Node::Const(_) => self.clone(),
             Node::Variadic(variadic) => variadic.normalize(),
             Node::Single(single) => single.normalize(),
             Node::Double(double) => double.normalize(),
@@ -205,7 +203,7 @@ impl Normalize for Expr {
 impl Ord for Expr {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
         self.rank().cmp(&other.rank()).then_with(|| {
-            match (&*self.node(), &*other.node()) {
+            match (self.node(), other.node()) {
                 (Node::Symbol(lhs), Node::Symbol(rhs)) => lhs.cmp(&rhs),
                 (Node::Const(lhs), Node::Const(rhs)) => {
                     let lhs = lhs.value();
@@ -225,7 +223,7 @@ impl Ord for Expr {
                     .then_with(|| lhs.args()[1].cmp(&rhs.args()[1])),
                 (Node::Variadic(lhs), Node::Variadic(rhs)) => {
                     lhs.rank().cmp(&rhs.rank()).then_with(|| {
-                        lhs.operands_ref().iter().cmp(rhs.operands_ref().iter())
+                        lhs.operands().iter().cmp(rhs.operands().iter())
                     })
                 }
                 (Node::Matrix(_lhs), Node::Matrix(_rhs)) => todo!(),

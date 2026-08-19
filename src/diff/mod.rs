@@ -32,9 +32,9 @@ pub trait Differentiable {
 
 impl Differentiable for Expr {
     fn diff(&self, symbol: Symbol, steps: &mut Option<Vec<Step>>) -> Expr {
-        match &*self.simplify(steps).node() {
+        match self.simplify(steps).into_node() {
             Node::Const(_) => 0.into(),
-            Node::Symbol(s) => if symbol == *s { 1 } else { 0 }.into(),
+            Node::Symbol(s) => if symbol == s { 1 } else { 0 }.into(),
             Node::Variadic(op) => op.diff(symbol, steps),
             Node::Single(op) => {
                 op.arg().diff(symbol, steps) * op.diff(symbol, steps)
@@ -86,12 +86,9 @@ impl Differentiable for Variadic {
                     .map(|(i, expr)| {
                         let mut factors = Vec::with_capacity(terms.len());
                         factors.push(expr.diff(symbol, steps));
-                        factors.extend(
-                            terms
-                                .iter()
-                                .enumerate()
-                                .filter_map(|(j, x)| (i != j).then_some(*x)),
-                        );
+                        factors.extend(terms.iter().enumerate().filter_map(
+                            |(j, x)| (i != j).then_some(x.clone()),
+                        ));
                         Variadic::Mul(factors).into()
                     })
                     .collect(),

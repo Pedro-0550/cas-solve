@@ -1,12 +1,14 @@
 use std::{
     array,
     fmt::{Debug, Display, Pointer},
-    mem::discriminant,
+    mem::{discriminant, take},
     num::NonZero,
+    rc::Rc,
+    sync::Arc,
 };
 
 use dashmap::mapref::one::Ref;
-use derive_more::{From, IsVariant, TryUnwrap, Unwrap};
+use derive_more::{Deref, DerefMut, From, IsVariant, TryUnwrap, Unwrap};
 use itertools::Itertools;
 
 use crate::{
@@ -19,7 +21,7 @@ use crate::{
 
 /* -------------------------------- CONSTANTS ------------------------------- */
 
-static NODES: Arena<Node> = Arena::new();
+// static NODES: Arena<Node> = Arena::new();
 
 /* --------------------------------- MODULES -------------------------------- */
 
@@ -31,9 +33,8 @@ mod test;
 
 /* ---------------------------------- ENUMS --------------------------------- */
 
-#[derive(
-    PartialEq, Clone, Debug, From, IsVariant, Unwrap, TryUnwrap, Hash, Eq,
-)]
+#[derive(PartialEq, Clone, From, IsVariant, Unwrap, TryUnwrap, Hash, Eq)]
+#[from(forward)]
 pub enum Node {
     Symbol(Symbol),
     Const(Quantity),
@@ -43,10 +44,13 @@ pub enum Node {
     Matrix(Matrix),
 }
 
+#[derive(PartialEq, Clone, Hash, Eq)]
+pub struct Expr(Arc<Node>);
+
 /* --------------------------------- STRUCTS -------------------------------- */
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
-pub struct Expr(Handle<Node>);
+// #[derive(Clone, Copy, PartialEq, Eq, Hash)]
+// pub struct Expr(Handle<Node>);
 
 #[derive(Clone, PartialEq, Eq)]
 pub struct Binding {
@@ -117,43 +121,50 @@ impl Shape {
 }
 
 impl Expr {
-    pub fn node(&self) -> Ref<'_, Handle<Node>, Node> {
-        NODES.get(self.0).unwrap()
+    pub fn node(&self) -> &Node {
+        &self.0
+    }
+
+    pub fn node_mut(&mut self) -> &mut Node {
+        Arc::make_mut(&mut self.0)
+    }
+
+    pub fn into_node(&self) -> Node {
+        (*self.0).clone()
     }
 
     /// Returns the total number of nodes in this expression
     pub fn size(&self) -> usize {
-        match *self.node() {
+        match self.node() {
             Node::Symbol(_symbol) => 1,
             Node::Const(_quantity) => 1,
-            Node::Variadic(ref variadic) => {
-                variadic.operands_ref().iter().map(|x| x.size()).sum::<usize>()
-                    + 1
+            Node::Variadic(variadic) => {
+                variadic.operands().iter().map(|x| x.size()).sum::<usize>() + 1
             }
             Node::Single(single) => single.arg().size() + 1,
             Node::Double(double) => {
                 double.args()[0].size() + double.args()[1].size() + 1
             }
-            Node::Matrix(ref matrix) => {
+            Node::Matrix(matrix) => {
                 matrix.elements().iter().map(|x| x.size()).sum::<usize>() + 1
             }
         }
     }
 
-    pub fn substitute(self, bindings: &[Binding]) -> Self {
-        match *self.node() {
-            Node::Variadic(ref op) => op
+    pub fn substitute(&self, bindings: &[Binding]) -> Self {
+        match self.node() {
+            Node::Variadic(op) => op
                 .with_operands(
-                    op.operands_ref()
+                    op.operands()
                         .iter()
                         .map(|x| x.substitute(bindings))
                         .collect(),
                 )
                 .into(),
-
             Node::Single(op) => {
                 op.with_arg(op.arg().substitute(bindings)).into()
             }
+            Node::Const(qty) => (*qty).into(),
 
             Node::Double(op) => op
                 .with_args(array::from_fn(|i| {
@@ -162,92 +173,56 @@ impl Expr {
                 .into(),
 
             Node::Symbol(sym) => {
-                if let Some(binding) = bindings.iter().find(|b| b.from == sym) {
-                    binding.to
+                if let Some(binding) = bindings.iter().find(|b| b.from == *sym)
+                {
+                    binding.to.clone()
                 } else {
-                    self
+                    self.clone()
                 }
             }
 
-            Node::Matrix(ref m) => {
+            Node::Matrix(m) => {
                 Node::Matrix(m.map(|el| el.substitute(bindings))).into()
             }
-
-            _ => self,
         }
     }
 }
 
 impl Shaped for Expr {
     fn shape(&self) -> Shape {
-        match *self.node() {
+        match self.node() {
             Node::Symbol(symbol) => symbol.shape(),
             Node::Const(_) => Shape::SCALAR,
-            Node::Variadic(ref variadic) => variadic.shape(),
+            Node::Variadic(variadic) => variadic.shape(),
             Node::Single(single) => single.shape(),
             Node::Double(double) => double.shape(),
-            Node::Matrix(ref matrix) => matrix.shape(),
+            Node::Matrix(matrix) => matrix.shape(),
         }
-    }
-}
-
-impl Node {
-    pub fn register(self) -> Expr {
-        if let Some(existing) = NODES.handle_of(&self) {
-            return Expr(existing);
-        }
-
-        let id = NODES.insert(self);
-        Expr(id)
     }
 }
 
 impl Display for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self.node() {
+        match self.node() {
             Node::Const(qty) => <Quantity as Display>::fmt(&qty, f),
             Node::Double(op) => <Double as Display>::fmt(&op, f),
             Node::Single(op) => <Single as Display>::fmt(&op, f),
-            Node::Variadic(ref op) => <Variadic as Display>::fmt(&op, f),
+            Node::Variadic(op) => <Variadic as Display>::fmt(&op, f),
             Node::Symbol(symb) => <Symbol as Display>::fmt(&symb, f),
-            Node::Matrix(ref _m) => todo!(),
+            Node::Matrix(_m) => todo!(),
         }
     }
 }
 
 impl Debug for Expr {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match *self.node() {
+        match self.node() {
             Node::Const(qty) => <Quantity as Display>::fmt(&qty, f),
             Node::Double(op) => write!(f, "{:?}", op),
             Node::Single(op) => write!(f, "{:?}", op),
-            Node::Variadic(ref op) => write!(f, "{:?}", op),
+            Node::Variadic(op) => write!(f, "{:?}", op),
             Node::Symbol(symb) => <Symbol as Display>::fmt(&symb, f),
-            Node::Matrix(ref _m) => todo!(),
+            Node::Matrix(_m) => todo!(),
         }
     }
 }
-
-// impl PartialOrd for Expr {
-//     fn partial_cmp(&self, other: &Self) -> Option<Ordering> {
-//         Some(self.cmp(other))
-//     }
-// }
-
-// impl Ord for Expr {
-//     fn cmp(&self, other: &Self) -> Ordering {
-//         match (self.node(), other.node()) {
-//             (Node::Symbol(lhs), Node::Symbol(rhs)) => {
-//                 lhs.name().cmp(&rhs.name())
-//             }
-//             (Node::Const(lhs), Node::Const(rhs)) => {
-//                 let lhs = lhs.value();
-//                 let rhs = rhs.value();
-//                 lhs.re
-//                     .total_cmp(&rhs.re)
-//                     .then_with(|| lhs.im.total_cmp(&rhs.im))
-//             }
-//             (Node::Intrinsic(lhs), Node::Intrinsic(rhs)) => match (lhs, rhs) {},
-//         }
-//     }
-// }

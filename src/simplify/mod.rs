@@ -52,18 +52,18 @@ pub struct Step {
 impl Simplify for Expr {
     fn simplify(&self, steps: &mut Option<Vec<Step>>) -> Expr {
         if self.node().is_symbol() || self.node().is_const() {
-            return *self;
+            return self.clone();
         }
 
         let mut step = self.normalize();
 
         loop {
-            let simplified = match &*step.node() {
+            let simplified = match step.node() {
                 Node::Variadic(variadic) => variadic.simplify(steps),
                 Node::Single(single) => single.simplify(steps),
                 Node::Double(double) => double.simplify(steps),
                 Node::Matrix(matrix) => todo!(),
-                _ => step,
+                _ => step.clone(),
             }
             .normalize();
             println!("{}", simplified);
@@ -85,9 +85,11 @@ impl Simplify for Expr {
 
 macro_rules! trig_simplify {
     ($inv:ident, $fn:ident, $expr:ident, $self:ident, $steps:ident) => {
-        match *$expr.node() {
+        match $expr.node() {
             Node::Const(qty) => Scalar::from(qty.value().$fn()).into(),
-            Node::Single(Single::$inv(x)) => x.simplify($steps),
+            Node::Single(op) if let Single::$inv(ref x) = *op => {
+                x.simplify($steps)
+            }
             _ => $self.with_arg($self.arg().simplify($steps)).into(),
         }
     };
@@ -119,27 +121,27 @@ impl Simplify for Double {
             .with_args(array::from_fn(|i| self.args()[i].simplify(steps)))
             .into();
 
-        match simplified {
+        match &simplified {
             Double::Pow { base, exp } => {
                 if let Node::Double(Double::Pow {
                     base: inner_base,
                     exp: inner_exp,
-                }) = *base.node()
-                    && let Node::Const(exp) = *exp.node()
-                    && let Node::Const(inner_exp) = *inner_exp.node()
+                }) = &base.node()
+                    && let Node::Const(exp) = exp.node()
+                    && let Node::Const(inner_exp) = inner_exp.node()
                     && exp.value().is_integer()
                     && inner_exp.value().is_integer()
                 {
-                    (inner_base ^ (exp * inner_exp)).simplify(steps)
-                } else if let Node::Const(qty) = *exp.node()
+                    (inner_base ^ (*exp * *inner_exp)).simplify(steps)
+                } else if let Node::Const(qty) = exp.node()
                     && qty.value().is_zero()
                 {
                     (1.0).into()
-                } else if let Node::Const(qty) = *exp.node()
+                } else if let Node::Const(qty) = exp.node()
                     && qty.value().is_one()
                 {
-                    base
-                } else if let Node::Const(qty) = *base.node()
+                    base.clone()
+                } else if let Node::Const(qty) = base.node()
                     && qty.value().is_one()
                 {
                     (1.0).into()
@@ -155,17 +157,17 @@ impl Simplify for Double {
 impl Simplify for Variadic {
     fn simplify(&self, steps: &mut Option<Vec<Step>>) -> Expr {
         let simplified =
-            self.operands_ref().iter().map(|expr| expr.simplify(steps));
+            self.operands().iter().map(|expr| expr.simplify(steps));
 
         let mut groupings =
-            HashMap::<Expr, Scalar>::with_capacity(self.operands_ref().len());
+            HashMap::<Expr, Scalar>::with_capacity(self.operands().len());
 
         for term in simplified.into_iter() {
             /* -------------------------------------------------------------------------- */
             // joins coefficients: 2x + x -> 3x
             if self.is_add()
-                && let Node::Variadic(Variadic::Mul(ref terms)) = *term.node()
-                && let (consts, exprs) = separate_consts(terms.iter().copied())
+                && let Node::Variadic(Variadic::Mul(terms)) = term.node()
+                && let (consts, exprs) = separate_consts(terms.iter().cloned())
                 && let Ok(coef) = consts.exactly_one()
             {
                 *groupings
@@ -174,21 +176,22 @@ impl Simplify for Variadic {
             /* -------------------------------------------------------------------------- */
             // joins integer powers -> x^2 * x^3 -> x^5
             } else if self.is_mul()
-                && let Node::Double(Double::Pow { base, exp }) = *term.node()
-                && let Node::Const(exp) = *exp.node()
+                && let Node::Double(Double::Pow { base, exp }) = &term.node()
+                && let Node::Const(exp) = exp.node()
                 && exp.value().is_integer()
             {
-                if let Node::Variadic(Variadic::Mul(ref terms)) = *base.node() {
+                if let Node::Variadic(Variadic::Mul(terms)) = base.node() {
                     for term in terms {
-                        *groupings.entry(*term).or_insert(0.0.into()) +=
+                        *groupings.entry(term.clone()).or_insert(0.0.into()) +=
                             exp.value();
                     }
                 } else {
-                    *groupings.entry(base).or_insert(0.0.into()) += exp.value();
+                    *groupings.entry(base.clone()).or_insert(0.0.into()) +=
+                        exp.value();
                 }
             /* -------------------------------------------------------------------------- */
             } else {
-                *groupings.entry(term).or_insert(0.0.into()) += 1;
+                *groupings.entry(term.clone()).or_insert(0.0.into()) += 1;
             }
         }
 
@@ -258,11 +261,11 @@ impl Simplify for Variadic {
                 );
 
             for term in terms {
-                match &*term.node() {
+                match term.node() {
                     Node::Variadic(Variadic::Mul(t)) => {
                         let mut map = HashMap::with_capacity(t.len());
                         let (const_factors, factors) =
-                            separate_consts(t.iter().copied());
+                            separate_consts(t.iter().cloned());
 
                         let Ok(const_factor) = const_factors
                             .at_most_one()
@@ -272,12 +275,12 @@ impl Simplify for Variadic {
                         };
 
                         for fac in factors {
-                            match *fac.node() {
+                            match fac.node() {
                                 Node::Double(Double::Pow { base, exp })
-                                    if let Node::Const(exp) = *exp.node()
+                                    if let Node::Const(exp) = exp.node()
                                         && exp.value().is_integer() =>
                                 {
-                                    *map.entry(base).or_insert(0.0) +=
+                                    *map.entry(base.clone()).or_insert(0.0) +=
                                         exp.value().re;
                                 }
                                 _ => {
@@ -294,11 +297,13 @@ impl Simplify for Variadic {
                         }
                     }
                     Node::Double(Double::Pow { base, exp })
-                        if let Node::Const(exp) = *exp.node()
+                        if let Node::Const(exp) = exp.node()
                             && exp.value().is_integer() =>
                     {
-                        factor_table
-                            .push((hashmap!(*base => exp.value().re), 1.0))
+                        factor_table.push((
+                            hashmap!(base.clone() => exp.value().re),
+                            1.0,
+                        ))
                     }
                     Node::Const(_) => unreachable!(),
                     _ => factor_table.push((hashmap!(term => 1.0), 1.0)),
@@ -329,7 +334,7 @@ impl Simplify for Variadic {
                 let common_factor = (factored_terms
                     .iter()
                     .fold(Expr::from(1.0), |acc, (base, exp)| {
-                        acc * (*base ^ *exp)
+                        acc * (base ^ *exp)
                     })
                     * factored_const)
                     .simplify(steps);
@@ -350,9 +355,9 @@ impl Simplify for Variadic {
                                     if remaining == 0.0 {
                                         acc
                                     } else if remaining == 1.0 {
-                                        acc * *base
+                                        acc * base
                                     } else {
-                                        acc * (*base ^ remaining)
+                                        acc * (base ^ remaining)
                                     }
                                 },
                             ) * (*c / factored_const)
@@ -381,8 +386,8 @@ pub fn separate_consts(
     terms: impl Iterator<Item = Expr> + Clone,
 ) -> (impl Iterator<Item = Quantity>, impl Iterator<Item = Expr>) {
     (
-        terms.clone().into_iter().filter_map(|expr| match *expr.node() {
-            Node::Const(qty) => Some(qty),
+        terms.clone().into_iter().filter_map(|expr| match expr.node() {
+            Node::Const(qty) => Some(*qty),
             _ => None,
         }),
         terms.into_iter().filter(|expr| !expr.node().is_const()),

@@ -1,4 +1,8 @@
-use std::ops::{Add, BitXor, Div, Mul, Neg, Sub};
+use std::{
+    ops::{Add, BitXor, Div, Mul, Neg, Sub},
+    rc::Rc,
+    sync::Arc,
+};
 
 use crate::{
     core::scalar::Scalar,
@@ -9,42 +13,42 @@ use crate::{
 
 /* ---------------------------------- IMPLS --------------------------------- */
 
+// impl From<Double> for Expr {
+//     fn from(value: Double) -> Self {
+//         Expr::Double(Rc::new(value))
+//     }
+// }
+
+// impl From<Single> for Expr {
+//     fn from(value: Single) -> Self {
+//         Expr::Single(Rc::new(value))
+//     }
+// }
+//
 impl<T> From<T> for Expr
 where
     Node: From<T>,
 {
     fn from(value: T) -> Self {
-        Node::from(value).register()
+        Self(Arc::new(value.into()))
     }
 }
 
-// impl From<Intrinsic> for Node {
-//     fn from(v: Intrinsic) -> Self {
-//         Self::Intrinsic(v)
-//     }
-// }
-
-// impl From<Quantity> for Node {
-//     fn from(v: Quantity) -> Self {
-//         Self::Const(v)
-//     }
-// }
-
-impl From<Scalar> for Node {
+impl From<Scalar> for Expr {
     fn from(v: Scalar) -> Self {
-        Self::Const(v.into())
+        Self(Arc::new(Node::Const(v.into())))
     }
 }
 
-impl From<f64> for Node {
+impl From<f64> for Expr {
     fn from(v: f64) -> Self {
-        Self::Const(v.into())
+        Self(Arc::new(Node::Const(v.into())))
     }
 }
 
-impl From<i64> for Node {
+impl From<i64> for Expr {
     fn from(v: i64) -> Self {
-        Self::Const(v.into())
+        Self(Arc::new(Node::Const(v.into())))
     }
 }
 
