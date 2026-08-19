@@ -23,7 +23,7 @@ use crate::{
 ///  * Fold constants into a single term;
 ///  * And sort terms in a standard, deterministic order
 pub trait Normalize {
-    fn normalize(&self) -> Expr;
+    fn normalize(&self, recurse: bool) -> Expr;
 
     /// Returns the rank of this expression, not considering its children.
     /// In this context, rank defines the sorting order during normalization.
@@ -34,40 +34,20 @@ pub trait Normalize {
 /* ---------------------------------- IMPLS --------------------------------- */
 
 impl Normalize for Variadic {
-    fn normalize(&self) -> Expr {
-        let normalized = self.operands().iter().map(Expr::normalize);
+    fn normalize(&self, recurse: bool) -> Expr {
+        let normalized = self
+            .operands()
+            .iter()
+            .map(|x| if recurse { x.normalize(recurse) } else { x.clone() });
 
-        let flattened = normalized.flat_map(|expr| match expr.into_node() {
-            Node::Variadic(op) if discriminant(&op) == discriminant(self) => {
-                op.into_operands()
+        let flattened = normalized.flat_map(|expr| match expr.node() {
+            Node::Variadic(op) if discriminant(op) == discriminant(self) => {
+                op.clone().into_operands()
             }
             _ => vec![expr],
         });
 
         let (consts, exprs) = separate_consts(flattened);
-
-        // let mut groupings =
-        //     HashMap::<Expr, Scalar>::with_capacity(self.operands_ref().len());
-
-        // for term in exprs.into_iter() {
-        //     if self.is_add()
-        //         && let Node::Variadic(Variadic::Mul(terms)) = term
-        //         && let (consts, exprs) = separate_consts(terms)
-        //         && let Ok(coef) = consts.exactly_one()
-        //     {
-        //         *groupings
-        //             .entry(Variadic::Mul(exprs.collect()).into())
-        //             .or_insert(0.0.into()) += coef.value();
-        //     } else if self.is_mul()
-        //         && let Node::Double(Double::Pow { base, exp }) = term
-        //         && let Node::Const(qty) = exp
-        //         && qty.value().is_integer()
-        //     {
-        //         *groupings.entry(base).or_insert(0.0.into()) += qty.value();
-        //     } else {
-        //         *groupings.entry(term).or_insert(0.0.into()) += 1;
-        //     }
-        // }
 
         let mut result = match self {
             Variadic::Add(_) => {
@@ -76,15 +56,6 @@ impl Normalize for Variadic {
                 let folded_const = consts.fold(0.into(), |acc: Quantity, x| {
                     (acc.value() + x.value()) * x.unit()
                 });
-
-                // let mut aggregated: Vec<_> = groupings
-                //     .into_iter()
-                //     .map(
-                //         |(base, mul)| {
-                //             if mul == 1.0.into() { base } else { base * mul }
-                //         },
-                //     )
-                //     .collect();
 
                 if folded_const.value() != 0.0.into() || exprs.len() == 0 {
                     exprs.push(folded_const.into());
@@ -95,10 +66,6 @@ impl Normalize for Variadic {
             Variadic::Mul(_) => {
                 let folded_const =
                     consts.fold(1.into(), |acc: Quantity, x| acc * x);
-
-                // let aggregated = groupings.into_iter().map(|(base, exp)| {
-                //     if exp == 1.0.into() { base } else { base ^ exp }
-                // });
 
                 if folded_const.value() == 0.0.into() {
                     return 0.0.into();
@@ -132,8 +99,8 @@ impl Normalize for Variadic {
 }
 
 impl Normalize for Single {
-    fn normalize(&self) -> Expr {
-        self.with_arg(self.arg().normalize()).into()
+    fn normalize(&self, recurse: bool) -> Expr {
+        self.with_arg(self.arg().normalize(recurse)).into()
     }
 
     fn rank(&self) -> usize {
@@ -162,9 +129,12 @@ impl Normalize for Single {
 }
 
 impl Normalize for Double {
-    fn normalize(&self) -> Expr {
-        self.with_args([self.args()[0].normalize(), self.args()[1].normalize()])
-            .into()
+    fn normalize(&self, recurse: bool) -> Expr {
+        self.with_args([
+            self.args()[0].normalize(recurse),
+            self.args()[1].normalize(recurse),
+        ])
+        .into()
     }
 
     fn rank(&self) -> usize {
@@ -177,21 +147,21 @@ impl Normalize for Double {
 }
 
 impl Normalize for Expr {
-    fn normalize(&self) -> Self {
+    fn normalize(&self, recurse: bool) -> Self {
         match &*self.node() {
             Node::Symbol(_) => self.clone(),
             Node::Const(_) => self.clone(),
-            Node::Variadic(variadic) => variadic.normalize(),
-            Node::Single(single) => single.normalize(),
-            Node::Double(double) => double.normalize(),
+            Node::Variadic(variadic) => variadic.normalize(recurse),
+            Node::Single(single) => single.normalize(recurse),
+            Node::Double(double) => double.normalize(recurse),
             Node::Matrix(_matrix) => todo!(),
         }
     }
 
     fn rank(&self) -> usize {
         match *self.node() {
-            Node::Symbol(_) => 0,
-            Node::Const(_) => 1,
+            Node::Const(_) => 0,
+            Node::Symbol(_) => 1,
             Node::Single(_) => 2,
             Node::Double(_) => 3,
             Node::Variadic(_) => 4,
@@ -265,8 +235,8 @@ mod test {
 
         panic!(
             "{}, {}",
-            (a * b * -c + 0).normalize(),
-            (-(1 * a * b * c)).normalize()
+            (a * b * -c + 0).normalize(true),
+            (-(1 * a * b * c)).normalize(true)
         );
     }
 }

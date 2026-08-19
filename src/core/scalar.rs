@@ -17,7 +17,7 @@ pub const EQ_ABS_TOL: f64 = 1e-15;
 /* --------------------------------- STRUCTS -------------------------------- */
 
 #[derive(PartialEq, Clone, Copy, Debug)]
-pub struct Scalar(Complex<f64>);
+pub struct Scalar(pub Complex<f64>);
 
 /* ---------------------------------- IMPLS --------------------------------- */
 

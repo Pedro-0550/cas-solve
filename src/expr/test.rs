@@ -1,6 +1,6 @@
 use crate::{
     dimension::{Unit, si::*},
-    simplify::Simplify,
+    simplify::{Simplify, SimplifyContext},
     symbol::Symbol,
 };
 
@@ -8,7 +8,11 @@ use crate::{
 fn formatting() {
     let x = Symbol::new("x").set_unit(Hz);
     let y = Symbol::new("y").set_unit(Hz);
-    panic!("{}", (((x * y) ^ 2) * y + 10e6 * V / (s * s)).simplify(&mut None))
+    panic!(
+        "{}",
+        (((x * y) ^ 2) * y + 10e6 * V / (s * s))
+            .simplify(&mut SimplifyContext::new())
+    )
 }
 
 #[test]
@@ -17,5 +21,5 @@ fn simplifying() {
     let y = Symbol::new("y").set_unit(Hz);
     let z = Symbol::new("z").set_unit(Hz);
 
-    panic!("{}", (x + 0.0 + y * 1.0 + x * z + x * y).simplify(&mut None))
+    panic!("{}", (x * z + x * y).simplify(&mut SimplifyContext::new()))
 }

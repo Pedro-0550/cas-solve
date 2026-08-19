@@ -4,6 +4,7 @@ use std::{
 };
 
 use itertools::Itertools;
+use num::Complex;
 use ordered_float::OrderedFloat;
 use thiserror::Error;
 
@@ -108,6 +109,8 @@ pub enum Unit {
 /* ---------------------------------- IMPLS --------------------------------- */
 
 impl Quantity {
+    pub const ZERO: Self = Self(Scalar(Complex::ZERO), Unit::Unitless);
+
     /// Normalizes this quantity to its non-scaled form.
     /// If this quantity is given in a scaled unit such as eV, it will convert to Joule and scale its value appropriately.
     /// This will be done recursively until a non-scaled unit is reached.

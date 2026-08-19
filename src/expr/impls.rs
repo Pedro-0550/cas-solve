@@ -1,4 +1,5 @@
 use std::{
+    hash::{DefaultHasher, Hash, Hasher, RandomState},
     ops::{Add, BitXor, Div, Mul, Neg, Sub},
     rc::Rc,
     sync::Arc,
@@ -30,25 +31,37 @@ where
     Node: From<T>,
 {
     fn from(value: T) -> Self {
-        Self(Arc::new(value.into()))
+        let node: Node = value.into();
+        let mut hasher = DefaultHasher::new();
+        node.hash(&mut hasher);
+        Self { node: Arc::new(node), hash: hasher.finish() }
     }
 }
 
 impl From<Scalar> for Expr {
     fn from(v: Scalar) -> Self {
-        Self(Arc::new(Node::Const(v.into())))
+        let node = Node::Const(v.into());
+        let mut hasher = DefaultHasher::new();
+        node.hash(&mut hasher);
+        Self { node: Arc::new(node), hash: hasher.finish() }
     }
 }
 
 impl From<f64> for Expr {
     fn from(v: f64) -> Self {
-        Self(Arc::new(Node::Const(v.into())))
+        let node = Node::Const(v.into());
+        let mut hasher = DefaultHasher::new();
+        node.hash(&mut hasher);
+        Self { node: Arc::new(node), hash: hasher.finish() }
     }
 }
 
 impl From<i64> for Expr {
     fn from(v: i64) -> Self {
-        Self(Arc::new(Node::Const(v.into())))
+        let node = Node::Const(v.into());
+        let mut hasher = DefaultHasher::new();
+        node.hash(&mut hasher);
+        Self { node: Arc::new(node), hash: hasher.finish() }
     }
 }
 

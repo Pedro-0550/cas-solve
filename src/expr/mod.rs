@@ -1,6 +1,7 @@
 use std::{
     array,
     fmt::{Debug, Display, Pointer},
+    hash::Hash,
     mem::{discriminant, take},
     num::NonZero,
     rc::Rc,
@@ -44,8 +45,11 @@ pub enum Node {
     Matrix(Matrix),
 }
 
-#[derive(PartialEq, Clone, Hash, Eq)]
-pub struct Expr(Arc<Node>);
+#[derive(Clone, Eq)]
+pub struct Expr {
+    node: Arc<Node>,
+    hash: u64,
+}
 
 /* --------------------------------- STRUCTS -------------------------------- */
 
@@ -120,17 +124,24 @@ impl Shape {
     }
 }
 
+impl Hash for Expr {
+    fn hash<H: std::hash::Hasher>(&self, state: &mut H) {
+        state.write_u64(self.hash);
+    }
+}
+
 impl Expr {
     pub fn node(&self) -> &Node {
-        &self.0
+        &self.node
     }
 
-    pub fn node_mut(&mut self) -> &mut Node {
-        Arc::make_mut(&mut self.0)
-    }
+    pub fn into_node(self) -> Node {
+        let Expr { node, .. } = self;
 
-    pub fn into_node(&self) -> Node {
-        (*self.0).clone()
+        match Arc::try_unwrap(node) {
+            Ok(node) => node,
+            Err(node) => (*node).clone(),
+        }
     }
 
     /// Returns the total number of nodes in this expression
@@ -185,6 +196,12 @@ impl Expr {
                 Node::Matrix(m.map(|el| el.substitute(bindings))).into()
             }
         }
+    }
+}
+
+impl PartialEq for Expr {
+    fn eq(&self, other: &Self) -> bool {
+        self.hash == other.hash
     }
 }
 
