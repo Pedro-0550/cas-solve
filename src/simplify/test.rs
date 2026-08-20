@@ -1,33 +1,19 @@
 use std::time::{self, Instant};
 
 use crate::{
-    expr::ops::{cos, cosh, log, sinh},
-    simplify::{Simplify, SimplifyContext},
+    expr::ops::{cos, cosh, ln, log, sinh},
+    simplify::{Simplify, SimplifyContext, normal::Normalize},
     symbol::Symbol,
+    symbols,
 };
 
 #[test]
 fn factoring() {
-    let x = Symbol::new("x");
-    let y = Symbol::new("y");
+    symbols!(x, y, z);
 
-    let expr =
-        x + x * y + (1245 * x * y * (cos(x ^ 2) ^ 2) * sinh(y) * log(x, y));
+    let expr = (x * y) + (x * ln(x) * z) + (x * ln(x));
+    let simp = expr.simplify(&mut SimplifyContext::new());
 
-    std::hint::black_box(expr.clone().simplify(&mut SimplifyContext::new()));
-
-    let start = Instant::now();
-    let n = 100;
-
-    for _ in 0..n {
-        std::hint::black_box(
-            expr.clone().simplify(&mut SimplifyContext::new()),
-        );
-    }
-
-    let elapsed = start.elapsed();
-
-    println!("n simplifications: {:?}", elapsed);
-    println!("{}", expr.simplify(&mut SimplifyContext::new()));
-    panic!("per simplification: {:?}", elapsed / n);
+    let target = x * ((ln(x) * (1 + z)) + y);
+    assert_eq!(simp, target.normalize(true), "failed: {} vs {}", simp, target)
 }

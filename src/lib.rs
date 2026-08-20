@@ -20,6 +20,5 @@ pub mod diff;
 pub mod dimension;
 pub mod eq;
 pub mod expr;
-pub mod set;
 pub mod simplify;
 pub mod symbol;

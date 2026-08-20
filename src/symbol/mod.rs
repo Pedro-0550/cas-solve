@@ -37,6 +37,15 @@ pub struct SymbolInfo {
 #[derive(PartialEq, Clone, Debug, Copy, Hash, Eq)]
 pub struct Symbol(pub(crate) Handle<SymbolInfo>);
 
+#[macro_export]
+macro_rules! symbols {
+    ($($sym:ident),+) => {
+        $(
+            let $sym = Symbol::new(stringify!($sym));
+        )+
+    };
+}
+
 /* ---------------------------------- IMPLS --------------------------------- */
 
 impl Symbol {

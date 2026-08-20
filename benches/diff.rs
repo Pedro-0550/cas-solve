@@ -5,6 +5,7 @@ use cas_solve::{
     expr::ops::{cos, cosh, ln, log, sin, sinh, tan},
     simplify::{Simplify, SimplifyContext},
     symbol::Symbol,
+    symbols,
 };
 use criterion::{Criterion, criterion_group, criterion_main};
 
@@ -21,8 +22,8 @@ fn small_expr(c: &mut Criterion) {
 
 fn large_expr(c: &mut Criterion) {
     c.bench_function("partial of large expr", |b| {
-        let x = Symbol::new("x");
-        let y = Symbol::new("y");
+        symbols!(x, y);
+
         let f_of_xy = (((x ^ 3) + 2.0 * x * y + (y ^ 2) + 1.0)
             * sin(x * y + x ^ 2)
             * cos((y ^ 2) + x)

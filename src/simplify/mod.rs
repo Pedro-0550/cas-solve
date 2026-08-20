@@ -270,27 +270,66 @@ impl Simplify for Variadic {
         };
 
         /* -------------------------------------------------------------------------- */
-        // Grouping common fators -> x * a + x * b -> x(a + b)
+        // Partial factoring -> x * a + x * b -> x(a + b)
+        // x * a + x * b + y * c + y * d -> x(a+b) + y(b+c)
 
         if self.is_add() && aggregated.len() >= 2 {
-            // Each term becomes a Vec containing the exponents each factor has in that expression
-            // Coefficients are handled separately since its easy to just get the GCD,
-            // and lone constants are not factored
-            // For example, 6x^2 + 3xy + 3 would yield:
-            // 6x^2 -> x^2 * y^0 | 6
-            // xy -> x^1 * y^1  | 3
-            // with 3 as a lone constant
-            // The algorithm finds the minimum exp of each factor:
-            // x -> min(2, 1) -> 1
-            // y -> min(0, 1) -> 0
-            // And the GCD of the coefficients:
-            // GCD(3, 6) -> 3
-            // And pulls all of that out by subtracting the factored exponents, dividing each coefficient by the GCD,
-            // and adding the lone constant back in:
-            // x^1 * y^0 * 3 * ((x^1 * y^0 * 6/3) + (x^0 * y^1 * 3/3)) + 3
-            // which simplifies to:
-            // 3x(2x + y) + 3
             // TODO: when domain is implemented allow fractional exponents to be factored as well
+            //
+            // I really wrote this. With my free will.
+            //
+            // The factor table stores the individual factors for each term in this addition and their exponents,
+            // as well as the term's coefficient.
+            //
+            // For the expression (x * y * 3) + (4 * x^2 / y) + (y^3) + (4y^2) it would look something like:
+            // [
+            //  ({ x: 1, y:  1 }, 3)
+            //  ({ x: 2, y: -1 }, 4)
+            //  ({ y: 3        }, 1)
+            //  ({ y: 2        }, 4)
+            // ]
+            // We want to factor this into: y * ((x * 3) + y * (4 + y)) + (4 * x^2 / y)
+            // During factoring, powers over multiplication are expanded.
+            // Then, we group unique factors by exponent sign, ignoring terms where its 0, producing 2 groups for each factor like so:
+            // x:
+            // + [
+            //  ({ x: 1, y:  1 }, 3)
+            //  ({ x: 2, y: -1 }, 4)
+            // ]
+            // - []
+            //
+            // y:
+            // + [
+            //  ({ x: 1, y:  1 }, 3)
+            //  ({ y: 3        }, 1)
+            //  ({ y: 2        }, 4)
+            // ]
+            // - [
+            //  ({ x: 2, y: -1 }, 4)
+            // ]
+            //
+            // The group with the most terms is factored first, and its terms are removed from other groups.
+            // We start from the term with the highest exp, then move out.
+            // First we calculate what exp each level will take by subtracting the sum of every previous exp, starting from the lowest exp:
+            // y -> y^1
+            // y^2 -> y^(2-1) -> y^1
+            // y^3 -> y^(3 - (1 + 1)) -> y^1
+            //
+            // For n factors with the same exp, the GCD of the coefficient must be taken to pull it out
+            //
+            // After the first step, we have
+            // x:
+            // + []
+            // - []
+            //
+            // y:
+            // + []
+            // - [
+            //  ({ x: 2, y: -1 }, 4)
+            // ]
+            //
+            // This would then be repeated until we only have 1 term left, which we already do.
+            // The last term is left unfactored.
 
             let mut factor_table =
                 Vec::<(AHashMap<Expr, f64>, f64)>::with_capacity(
